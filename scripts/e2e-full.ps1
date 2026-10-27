@@ -145,6 +145,7 @@ try {
     Write-Host '== Services'
     $processes += Start-AppService 'auth-service' ($common + @{
         SERVER_PORT = $ports['auth-service']; DB_PASSWORD = $secrets.AUTH_DB_PASSWORD
+        REDIS_HOST = '127.0.0.1'; REDIS_PORT = $redisPort; REDIS_PASSWORD = $secrets.REDIS_PASSWORD
         AUTH_JWT_PRIVATE_KEY_LOCATION = 'file:///' + $keyFile.Replace('\', '/')
         ADMIN_BOOTSTRAP_EMAIL = $adminEmail; ADMIN_BOOTSTRAP_PASSWORD = $adminPassword; ADMIN_BOOTSTRAP_DISPLAY_NAME = 'E2E Admin'
     })

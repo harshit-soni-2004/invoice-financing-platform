@@ -28,6 +28,15 @@ spring:
     # The outbox relay marks an event published only after the broker confirms it.
     publisher-confirm-type: correlated
 
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      # Fail fast so an unreachable Redis lets the login through (fail open) instead of hanging it.
+      timeout: ${REDIS_TIMEOUT:500ms}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:500ms}
+
 auth:
   # Browser-visible URL of this server. Every resource server expects exactly this value in `iss`.
   issuer: ${AUTH_ISSUER_URI:http://localhost:9000}
@@ -48,6 +57,16 @@ auth:
     email: ${ADMIN_BOOTSTRAP_EMAIL:}
     password: ${ADMIN_BOOTSTRAP_PASSWORD:}
     display-name: ${ADMIN_BOOTSTRAP_DISPLAY_NAME:}
+  # Throttling of POST /login and POST /oauth2/token, kept in Redis. Fails open if Redis is unavailable.
+  rate-limit:
+    enabled: ${AUTH_RATE_LIMIT_ENABLED:true}
+    # Requests per client address and endpoint within one window.
+    ip-requests: ${AUTH_RATE_LIMIT_IP_REQUESTS:30}
+    ip-window: ${AUTH_RATE_LIMIT_IP_WINDOW:1m}
+    # Failed logins per client address + username within the failure window before a lockout.
+    max-failures: ${AUTH_RATE_LIMIT_MAX_FAILURES:5}
+    failure-window: ${AUTH_RATE_LIMIT_FAILURE_WINDOW:15m}
+    lockout: ${AUTH_RATE_LIMIT_LOCKOUT:5m}
 
 server:
   port: ${SERVER_PORT:9000}
@@ -66,9 +85,22 @@ management:
       probes:
         enabled: true
       show-details: never
+      # RabbitMQ is deliberately not part of readiness: the outbox absorbs broker outages, so a broker failure must
+      # not take the HTTP API out of rotation.
+      group:
+        readiness:
+          include: readinessState,db
+  # The login limiter fails open, so a Redis outage must not mark auth-service unhealthy.
+  health:
+    redis:
+      enabled: false
 
-# JSON logs are enabled per environment with LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs (set in Docker Compose).
 logging:
+  structured:
+    format:
+      # JSON (Elastic Common Schema) with service.name and MDC (correlationId) on every line; the `local` profile
+      # switches back to human-readable output.
+      console: ecs
   level:
     root: ${LOG_LEVEL_ROOT:INFO}
     com.ifp: ${LOG_LEVEL_APP:INFO}

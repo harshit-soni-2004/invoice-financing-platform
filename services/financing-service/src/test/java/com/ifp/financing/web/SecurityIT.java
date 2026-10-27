@@ -20,6 +20,8 @@ class SecurityIT extends AbstractIntegrationTest {
     @Test
     void healthIsPublicButApiRequiresToken() throws Exception {
         mockMvc.perform(get("/actuator/health")).andExpect(status().isOk());
+        mockMvc.perform(get("/actuator/health/liveness")).andExpect(status().isOk());
+        mockMvc.perform(get("/actuator/health/readiness")).andExpect(status().isOk());
         mockMvc.perform(get(OFFERS)).andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/financing/agreements")).andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/financing/opportunities")).andExpect(status().isUnauthorized());

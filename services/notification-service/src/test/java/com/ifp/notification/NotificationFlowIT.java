@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.ifp.messaging.EventEnvelope;
 import com.ifp.messaging.EventTopology;
+import com.ifp.messaging.OutboxPurger;
+import com.ifp.messaging.OutboxRelay;
 import com.ifp.messaging.Uuids;
 import com.ifp.notification.messaging.NotificationEventsListener;
 import com.ifp.notification.support.AbstractIntegrationTest;
@@ -12,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageProperties;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -32,6 +35,16 @@ class NotificationFlowIT extends AbstractIntegrationTest {
     private RabbitTemplate rabbit;
     @Autowired
     private JdbcTemplate jdbc;
+    @Autowired
+    private ObjectProvider<OutboxRelay> relay;
+    @Autowired
+    private ObjectProvider<OutboxPurger> purger;
+
+    @Test
+    void consumerOnlyServiceRunsNeitherRelayNorPurge() {
+        assertThat(relay.getIfAvailable()).isNull();
+        assertThat(purger.getIfAvailable()).isNull();
+    }
 
     @Test
     void registeredUserGetsWelcomeMailAndLaterDealMailsExactlyOnce() throws Exception {
@@ -145,6 +158,9 @@ class NotificationFlowIT extends AbstractIntegrationTest {
         mockMvc.perform(get("/actuator/health/liveness"))
                 .andExpect(status().isOk())
                 .andExpect(header().exists("X-Correlation-Id"));
+        mockMvc.perform(get("/actuator/health/readiness"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("UP"));
     }
 
     private ObjectNode mapper() {

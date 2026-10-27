@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ifp.messaging.EventEnvelope;
 import com.ifp.messaging.EventTopology;
 import com.ifp.messaging.MessagingProperties;
+import com.ifp.messaging.OutboxPurger;
 import com.ifp.messaging.OutboxRelay;
 import com.ifp.messaging.OutboxWriter;
 import com.ifp.messaging.Uuids;
@@ -151,6 +152,56 @@ class MessagingIT {
         relay.publishPending();
         assertThat(jdbc.queryForObject("select published_at is not null from outbox_events where id = ?", Boolean.class,
                 (Object) Uuids.toBytes(envelope.eventId()))).isTrue();
+    }
+
+    @Test
+    void purgeDeletesOnlyPublishedRowsOlderThanTheRetentionInBatches() {
+        UUID oldPublished1 = appendWithPublishedAt(Duration.ofDays(8));
+        UUID oldPublished2 = appendWithPublishedAt(Duration.ofDays(30));
+        UUID oldPublished3 = appendWithPublishedAt(Duration.ofDays(10));
+        UUID recentPublished = appendWithPublishedAt(Duration.ofDays(6));
+        UUID oldUnpublished = appendWithPublishedAt(null);
+        jdbc.update("update outbox_events set created_at = ?, next_attempt_at = ? where id = ?",
+                java.sql.Timestamp.from(Instant.now().minus(Duration.ofDays(60))),
+                java.sql.Timestamp.from(Instant.now().plus(Duration.ofDays(1))), Uuids.toBytes(oldUnpublished));
+
+        OutboxPurger purger = new OutboxPurger(jdbc, Clock.systemUTC(),
+                new MessagingProperties.Purge(true, Duration.ofDays(7), Duration.ofHours(1), 2));
+
+        assertThat(purger.purgePublished()).isGreaterThanOrEqualTo(3);
+        assertThat(exists(oldPublished1)).isFalse();
+        assertThat(exists(oldPublished2)).isFalse();
+        assertThat(exists(oldPublished3)).isFalse();
+        assertThat(exists(recentPublished)).as("inside the retention period").isTrue();
+        assertThat(exists(oldUnpublished)).as("never published, however old").isTrue();
+        assertThat(purger.purgePublished()).isZero();
+    }
+
+    @Autowired
+    private OutboxPurger configuredPurger;
+
+    @Test
+    void purgerIsWiredWithTheDefaultSevenDayRetention() {
+        UUID eightDaysOld = appendWithPublishedAt(Duration.ofDays(8));
+        UUID sixDaysOld = appendWithPublishedAt(Duration.ofDays(6));
+
+        configuredPurger.purgePublished();
+
+        assertThat(exists(eightDaysOld)).isFalse();
+        assertThat(exists(sixDaysOld)).isTrue();
+    }
+
+    private UUID appendWithPublishedAt(Duration age) {
+        UUID id = tx.execute(status -> outbox.append("test.purge", "Purgeable", "TEST", "agg-p", null, Map.of()).eventId());
+        // Keep the relay away from these rows; only the purge decision matters here.
+        jdbc.update("update outbox_events set published_at = ?, next_attempt_at = ? where id = ?",
+                age == null ? null : java.sql.Timestamp.from(Instant.now().minus(age)),
+                java.sql.Timestamp.from(Instant.now().plus(Duration.ofDays(1))), Uuids.toBytes(id));
+        return id;
+    }
+
+    private boolean exists(UUID id) {
+        return jdbc.queryForObject("select count(*) from outbox_events where id = ?", Integer.class, (Object) Uuids.toBytes(id)) == 1;
     }
 
     private int effects(UUID eventId) {

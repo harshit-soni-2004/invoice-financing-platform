@@ -1,6 +1,7 @@
 package com.ifp.auth.security;
 
 import com.ifp.auth.config.AuthServerProperties;
+import com.ifp.auth.security.ratelimit.LoginRateLimitFilter;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.proc.JWSVerificationKeySelector;
@@ -43,6 +44,7 @@ import org.springframework.security.web.util.matcher.MediaTypeRequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.web.filter.CorsFilter;
 
 import java.util.List;
 import java.util.UUID;
@@ -58,10 +60,11 @@ public class AuthorizationServerConfig {
 
     @Bean
     @Order(1)
-    SecurityFilterChain authorizationServerSecurity(HttpSecurity http) throws Exception {
+    SecurityFilterChain authorizationServerSecurity(HttpSecurity http, LoginRateLimitFilter rateLimitFilter) throws Exception {
         OAuth2AuthorizationServerConfigurer authorizationServer = OAuth2AuthorizationServerConfigurer.authorizationServer();
         return http
                 .securityMatcher(authorizationServer.getEndpointsMatcher())
+                .addFilterAfter(rateLimitFilter, CorsFilter.class)
                 .with(authorizationServer, server -> server.oidc(Customizer.withDefaults()))
                 .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
                 // Browsers hitting /oauth2/authorize without a session are sent to the login form.

@@ -137,8 +137,12 @@ management:
     redis:
       enabled: false
 
-# JSON logs are enabled per environment with LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs (set in Docker Compose).
 logging:
+  structured:
+    format:
+      # JSON (Elastic Common Schema) with service.name and MDC on every line; the `local` profile switches back to
+      # human-readable output.
+      console: ecs
   level:
     root: ${LOG_LEVEL_ROOT:INFO}
     com.ifp: ${LOG_LEVEL_APP:INFO}

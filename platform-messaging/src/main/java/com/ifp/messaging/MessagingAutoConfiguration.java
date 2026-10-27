@@ -10,6 +10,7 @@ import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration;
 import org.springframework.boot.autoconfigure.amqp.RabbitProperties;
 import org.springframework.boot.autoconfigure.amqp.RabbitRetryTemplateCustomizer;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.jdbc.JdbcTemplateAutoConfiguration;
 import org.springframework.boot.autoconfigure.transaction.TransactionAutoConfiguration;
@@ -52,6 +53,12 @@ public class MessagingAutoConfiguration {
                             ObjectProvider<Clock> clock, MessagingProperties properties) {
         return new OutboxRelay(jdbc, new TransactionTemplate(transactionManager), rabbit,
                 clock.getIfAvailable(Clock::systemUTC), properties.relay());
+    }
+
+    @Bean
+    @ConditionalOnExpression("${ifp.messaging.relay.enabled:true} and ${ifp.messaging.purge.enabled:true}")
+    OutboxPurger outboxPurger(JdbcTemplate jdbc, ObjectProvider<Clock> clock, MessagingProperties properties) {
+        return new OutboxPurger(jdbc, clock.getIfAvailable(Clock::systemUTC), properties.purge());
     }
 
     @Bean

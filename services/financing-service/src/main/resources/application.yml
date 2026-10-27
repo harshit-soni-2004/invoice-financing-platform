@@ -80,9 +80,18 @@ management:
       probes:
         enabled: true
       show-details: never
+      # RabbitMQ is deliberately not part of readiness: the outbox absorbs broker outages, so a broker failure must
+      # not take the HTTP API out of rotation.
+      group:
+        readiness:
+          include: readinessState,db
 
-# JSON logs are enabled per environment with LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs (set in Docker Compose).
 logging:
+  structured:
+    format:
+      # JSON (Elastic Common Schema) with service.name and MDC (correlationId) on every line; the `local` profile
+      # switches back to human-readable output.
+      console: ecs
   level:
     root: ${LOG_LEVEL_ROOT:INFO}
     com.ifp: ${LOG_LEVEL_APP:INFO}

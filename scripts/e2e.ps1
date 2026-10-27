@@ -118,6 +118,8 @@ try {
     Write-Host '== Services'
     $processes += Start-AppService 'auth-service' (Find-Jar 'auth-service') ($common + @{
         SERVER_PORT = $AuthPort; DB_PASSWORD = $dotenv['AUTH_DB_PASSWORD']
+        REDIS_PASSWORD = $dotenv['REDIS_PASSWORD']
+        REDIS_PORT = $(if ($dotenv['REDIS_PORT']) { $dotenv['REDIS_PORT'] } else { '6379' })
         AUTH_JWT_PRIVATE_KEY_LOCATION = 'file:///' + $keyFile.Replace('\', '/')
     })
     $processes += Start-AppService 'invoice-service' (Find-Jar 'invoice-service') ($common + @{

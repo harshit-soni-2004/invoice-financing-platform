@@ -1,5 +1,6 @@
 package com.ifp.auth.security;
 
+import com.ifp.auth.security.ratelimit.LoginRateLimitFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -14,6 +15,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.filter.CorsFilter;
 
 /**
  * Two kinds of traffic besides the authorization-server endpoints:
@@ -44,8 +46,9 @@ public class SecurityConfig {
 
     @Bean
     @Order(3)
-    SecurityFilterChain browserSecurity(HttpSecurity http) throws Exception {
+    SecurityFilterChain browserSecurity(HttpSecurity http, LoginRateLimitFilter rateLimitFilter) throws Exception {
         return http
+                .addFilterAfter(rateLimitFilter, CorsFilter.class)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info", "/error").permitAll()
                         .anyRequest().authenticated())

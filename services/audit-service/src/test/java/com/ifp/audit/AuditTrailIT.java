@@ -122,6 +122,12 @@ class AuditTrailIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void livenessAndReadinessProbesArePublic() throws Exception {
+        mockMvc.perform(get("/actuator/health/liveness")).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("UP"));
+        mockMvc.perform(get("/actuator/health/readiness")).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("UP"));
+    }
+
+    @Test
     void onlyAdminsCanReadTheAuditTrail() throws Exception {
         mockMvc.perform(get("/api/audit-events")).andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/audit-events").header("Authorization", "Bearer " + TestJwtSupport.seller(UUID.randomUUID())))

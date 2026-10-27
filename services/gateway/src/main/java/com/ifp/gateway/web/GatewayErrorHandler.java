@@ -1,7 +1,9 @@
 package com.ifp.gateway.web;
 
+import com.ifp.common.web.CorrelationId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.boot.web.reactive.error.ErrorWebExceptionHandler;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
@@ -29,16 +31,26 @@ public class GatewayErrorHandler implements ErrorWebExceptionHandler {
     @Override
     public Mono<Void> handle(ServerWebExchange exchange, Throwable ex) {
         String correlationId = exchange.getAttribute(CorrelationIdWebFilter.ATTRIBUTE);
+        if (correlationId == null) {
+            return respond(exchange, ex);
+        }
+        // Reactor does not carry the MDC across threads; the log calls below run synchronously on this one.
+        try (MDC.MDCCloseable ignored = MDC.putCloseable(CorrelationId.MDC_KEY, correlationId)) {
+            return respond(exchange, ex);
+        }
+    }
+
+    private Mono<Void> respond(ServerWebExchange exchange, Throwable ex) {
         if (isUnreachable(ex)) {
-            log.warn("Downstream unavailable: path={} correlationId={} cause={}", exchange.getRequest().getPath(),
-                    correlationId, ex.getClass().getSimpleName());
+            log.warn("Downstream unavailable: path={} cause={}", exchange.getRequest().getPath(),
+                    ex.getClass().getSimpleName());
             return ProblemResponses.write(exchange, HttpStatus.SERVICE_UNAVAILABLE, "DOWNSTREAM_UNAVAILABLE",
                     "The service is temporarily unavailable. Try again later.");
         }
         if (ex instanceof ResponseStatusException statusException) {
             HttpStatusCode code = statusException.getStatusCode();
             if (code.value() == HttpStatus.GATEWAY_TIMEOUT.value()) {
-                log.warn("Downstream timed out: path={} correlationId={}", exchange.getRequest().getPath(), correlationId);
+                log.warn("Downstream timed out: path={}", exchange.getRequest().getPath());
                 return ProblemResponses.write(exchange, HttpStatus.GATEWAY_TIMEOUT, "DOWNSTREAM_TIMEOUT",
                         "The service did not respond in time. Try again later.");
             }
@@ -51,7 +63,7 @@ public class GatewayErrorHandler implements ErrorWebExceptionHandler {
                         "The request could not be processed");
             }
         }
-        log.error("Unhandled gateway error: path={} correlationId={}", exchange.getRequest().getPath(), correlationId, ex);
+        log.error("Unhandled gateway error: path={}", exchange.getRequest().getPath(), ex);
         return ProblemResponses.write(exchange, HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR",
                 "An unexpected error occurred");
     }

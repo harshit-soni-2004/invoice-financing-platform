@@ -8,9 +8,24 @@ import java.time.Duration;
 /**
  * @param producer name written into every envelope (defaults to {@code spring.application.name})
  * @param relay    outbox relay settings
+ * @param purge    clean-up of published outbox rows
  */
 @ConfigurationProperties("ifp.messaging")
-public record MessagingProperties(String producer, @DefaultValue Relay relay) {
+public record MessagingProperties(String producer, @DefaultValue Relay relay, @DefaultValue Purge purge) {
+
+    /**
+     * Only active where the relay is, since services without a relay have no outbox table.
+     *
+     * @param enabled   whether published rows are deleted at all
+     * @param retention how long a published row is kept (for inspection and replay) before it is deleted
+     * @param interval  pause between purge passes
+     * @param batchSize rows deleted per statement
+     */
+    public record Purge(@DefaultValue("true") boolean enabled,
+                        @DefaultValue("7d") Duration retention,
+                        @DefaultValue("1h") Duration interval,
+                        @DefaultValue("1000") int batchSize) {
+    }
 
     /**
      * @param enabled        whether this service publishes its outbox

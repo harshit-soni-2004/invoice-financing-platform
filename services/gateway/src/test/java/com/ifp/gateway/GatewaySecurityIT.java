@@ -37,6 +37,8 @@ class GatewaySecurityIT extends AbstractGatewayIT {
         client().get().uri("/actuator/health").exchange()
                 .expectStatus().isOk()
                 .expectBody().jsonPath("$.status").isEqualTo("UP");
+        client().get().uri("/actuator/health/liveness").exchange().expectStatus().isOk();
+        client().get().uri("/actuator/health/readiness").exchange().expectStatus().isOk();
     }
 
     @Test

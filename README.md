@@ -105,8 +105,9 @@ function Get-DotEnv($name) { (Get-Content .env | Select-String "^$name=").Line.S
 # In each service terminal (not needed for the gateway):
 $env:RABBITMQ_USER = Get-DotEnv RABBITMQ_USER; $env:RABBITMQ_PASSWORD = Get-DotEnv RABBITMQ_PASSWORD
 
-# Terminal 1: auth-service on :9000
+# Terminal 1: auth-service on :9000 (Redis holds the login rate-limit counters)
 $env:DB_PASSWORD = Get-DotEnv AUTH_DB_PASSWORD
+$env:REDIS_PASSWORD = Get-DotEnv REDIS_PASSWORD
 $env:AUTH_JWT_PRIVATE_KEY_LOCATION = 'file:./infra/keys/jwt-signing-key.pem'
 java -jar services/auth-service/target/auth-service-0.1.0-SNAPSHOT.jar
 
@@ -150,7 +151,10 @@ The dev seed invoices predate the event pipeline and are never published, so the
 | `AUTH_SERVICE_URI` / `INVOICE_SERVICE_URI` / `FINANCING_SERVICE_URI` / `NOTIFICATION_SERVICE_URI` / `AUDIT_SERVICE_URI` | `http://localhost:9000` / `:8081` / `:8082` / `:8083` / `:8084` | gateway | Route targets |
 | `FINANCING_MAX_ADVANCE_RATIO` / `FINANCING_MAX_ANNUAL_RATE` / `FINANCING_MAX_OFFER_VALIDITY` / `FINANCING_MIN_DAYS_TO_MATURITY` / `FINANCING_MAX_INSTALLMENTS` | `0.98` / `0.3600` / `14d` / `7` / `12` | financing | Bounds on offer terms (financiers always set the actual terms) |
 | `FINANCING_REPAYMENT_REMINDER_DAYS` / `FINANCING_REPAYMENT_REMINDER_SWEEP_INTERVAL` | `3` / `15m` | financing | "Due soon" window and how often reminders are checked |
-| `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` | `localhost` / `6379` / (none) | gateway | Rate-limit store |
+| `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` | `localhost` / `6379` / (none) | gateway, auth | Rate-limit store |
+| `AUTH_RATE_LIMIT_IP_REQUESTS` / `AUTH_RATE_LIMIT_IP_WINDOW` | `30` / `1m` | auth | Requests per client address to `POST /login` and to `POST /oauth2/token` |
+| `AUTH_RATE_LIMIT_MAX_FAILURES` / `AUTH_RATE_LIMIT_FAILURE_WINDOW` / `AUTH_RATE_LIMIT_LOCKOUT` | `5` / `15m` / `5m` | auth | Failed logins per client address + username before a lockout, and its length |
+| `IFP_MESSAGING_PURGE_RETENTION` / `IFP_MESSAGING_PURGE_INTERVAL` | `7d` / `1h` | auth, invoice, financing | How long published outbox rows are kept, and how often they are purged |
 | `GATEWAY_CORS_ALLOWED_ORIGINS` | `http://localhost:4200` | gateway | Explicit origins (`*` is rejected at startup) |
 | `GATEWAY_TRUSTED_PROXY_HOPS` | `0` | gateway | Trusted `X-Forwarded-For` hops |
 | `RATE_LIMIT_PUBLIC_*` / `RATE_LIMIT_API_*` | see `.env.example` | gateway | Token-bucket sizes and failure modes |
@@ -171,13 +175,13 @@ There are no built-in users or default passwords.
 
 The SPA (Phase 6) is the public OAuth2 client `ifp-spa`. It sends the browser to `http://localhost:9000/oauth2/authorize` with an S256 PKCE challenge. The user signs in on auth-service's own login page, and the SPA exchanges the returned code plus its PKCE verifier at `/oauth2/token`. Requests without PKCE are refused, and no refresh tokens are issued to the public client. The resulting access token (15 minutes) is sent as `Authorization: Bearer ...` to `http://localhost:8080/api/**`. Discovery is at `http://localhost:9000/.well-known/openid-configuration`, and keys are at `/oauth2/jwks`. These stay on auth-service (the issuer) and are not routed through the gateway.
 
-`GET /actuator/health` is public on every service. Everything else on the gateway requires a valid token, except `POST /api/auth/register`.
+`GET /actuator/health`, `/actuator/health/liveness` and `/actuator/health/readiness` are public on every service. Readiness also requires the service's database. RabbitMQ and Redis are deliberately not part of it, because the outbox and the rate-limit failure modes already handle their outages. Everything else on the gateway requires a valid token, except `POST /api/auth/register`.
 
 The `dev` profile seed is demo data only: fictional sellers and buyers, with invoice numbers prefixed `DEMO-`. Production migrations live in `db/migration`, and the seed lives in `db/seed-dev`.
 
 ## Logging
 
-Logs go to stdout. Set `LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs` to emit structured JSON (used in containers). Every request carries an `X-Correlation-Id`, which appears in logs and response headers. A malformed incoming ID is replaced with a fresh UUID rather than forwarded.
+Logs go to stdout as one JSON object per line (Elastic Common Schema), with `service.name` and the `correlationId` of the request or consumed event. For human-readable lines while developing, add the `local` profile (`SPRING_PROFILES_ACTIVE=local`, or `dev,local` for invoice-service), which prints the correlation ID in brackets. Every request carries an `X-Correlation-Id`, which appears in logs and response headers. A malformed incoming ID is replaced with a fresh UUID rather than forwarded. Log statements contain IDs, statuses, event types and exception class names only, never emails, tokens, passwords or amounts.
 
 ## Troubleshooting
 
@@ -189,3 +193,4 @@ Logs go to stdout. Set `LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs` to emit structure
 - **429 on registration**: the public route allows 5 requests per client address per burst (one more every 12 s). Authenticated APIs are limited per user.
 - **e2e.ps1: "Port 8080 is already in use"**: another application holds the port. Pass `-GatewayPort` (or `-AuthPort` / `-InvoicePort`).
 - **Login page redirects back with `?error`**: wrong password, or a financier still pending approval.
+- **429 on `/login` or `/oauth2/token`**: five failed logins for the same username from the same address lock that pair out for 5 minutes, and each address may make 30 requests per minute to each endpoint. `Retry-After` says how long to wait.
