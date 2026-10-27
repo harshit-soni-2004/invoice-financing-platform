@@ -40,14 +40,17 @@ public class InvoiceProjectionService {
     private final FinancingAgreementRepository agreements;
     private final StatusHistoryRecorder history;
     private final Clock clock;
+    private final FinancingEvents events;
 
     public InvoiceProjectionService(FinanceableInvoiceRepository invoices, FinancingOfferRepository offers,
-                                    FinancingAgreementRepository agreements, StatusHistoryRecorder history, Clock clock) {
+                                    FinancingAgreementRepository agreements, StatusHistoryRecorder history, Clock clock,
+                                    FinancingEvents events) {
         this.invoices = invoices;
         this.offers = offers;
         this.agreements = agreements;
         this.history = history;
         this.clock = clock;
+        this.events = events;
     }
 
     public Outcome apply(InvoiceSnapshot snapshot) {
@@ -85,12 +88,14 @@ public class InvoiceProjectionService {
         for (FinancingOffer offer : offers.findByInvoiceIdAndStatus(invoice.getInvoiceId(), OfferStatus.OFFERED)) {
             offer.close(INVOICE_WITHDRAWN, now);
             history.recordSystem(StatusHistoryEntry.OFFER, offer.getId(), OfferStatus.OFFERED, OfferStatus.CLOSED, INVOICE_WITHDRAWN, now);
+            events.offer(offer, OfferStatus.OFFERED, null);
         }
         for (FinancingAgreement agreement : agreements.findByInvoiceIdAndStatusIn(invoice.getInvoiceId(),
                 EnumSet.of(AgreementStatus.PENDING_APPROVAL, AgreementStatus.APPROVED))) {
             AgreementStatus from = agreement.getStatus();
             agreement.cancel(INVOICE_WITHDRAWN, now);
             history.recordSystem(StatusHistoryEntry.AGREEMENT, agreement.getId(), from, AgreementStatus.CANCELLED, INVOICE_WITHDRAWN, now);
+            events.agreement(agreement, from, null);
         }
     }
 }

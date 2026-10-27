@@ -68,6 +68,24 @@ spring:
                   args:
                     rate-limiter: "#{@apiRateLimiter}"
                     key-resolver: "#{@clientKeyResolver}"
+            - id: notifications
+              uri: ${NOTIFICATION_SERVICE_URI:http://localhost:8083}
+              predicates:
+                - Path=/api/notifications,/api/notifications/**
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    rate-limiter: "#{@apiRateLimiter}"
+                    key-resolver: "#{@clientKeyResolver}"
+            - id: audit
+              uri: ${AUDIT_SERVICE_URI:http://localhost:8084}
+              predicates:
+                - Path=/api/audit-events,/api/audit-events/**
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    rate-limiter: "#{@apiRateLimiter}"
+                    key-resolver: "#{@clientKeyResolver}"
             # OAuth2/OIDC endpoints (login, /oauth2/*, discovery, JWKS) are served by auth-service directly at the
             # issuer URL and are deliberately not routed here.
 

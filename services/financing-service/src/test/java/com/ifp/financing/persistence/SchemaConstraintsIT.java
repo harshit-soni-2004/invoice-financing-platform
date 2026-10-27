@@ -25,12 +25,12 @@ class SchemaConstraintsIT extends AbstractIntegrationTest {
     @Test
     void flywayAppliedTheSchema() {
         assertThat(jdbc.queryForObject("select max(version) from flyway_schema_history where success = 1", String.class))
-                .isEqualTo("1");
+                .isEqualTo("3");
         List<String> tables = jdbc.queryForList(
                 "select table_name from information_schema.tables where table_schema = database()", String.class);
         assertThat(tables).contains("financeable_invoices", "financing_offers", "financing_agreements", "disbursements",
                 "repayment_installments", "repayments", "repayment_allocations", "idempotency_records",
-                "financing_status_history");
+                "financing_status_history", "outbox_events", "processed_events", "repayment_reminders");
     }
 
     @Test

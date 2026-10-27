@@ -2,6 +2,51 @@ spring:
   application:
     name: audit-service
 
+  datasource:
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3307}/${DB_NAME:audit_db}?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true
+    # Runtime user: SELECT and INSERT only.
+    username: ${DB_USERNAME:audit_svc}
+    password: ${DB_PASSWORD:}
+
+  flyway:
+    locations: classpath:db/migration
+    # Schema changes run as a separate, more privileged user.
+    user: ${DB_MIGRATOR_USERNAME:audit_migrator}
+    password: ${DB_MIGRATOR_PASSWORD:}
+
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:}
+    password: ${RABBITMQ_PASSWORD:}
+    listener:
+      simple:
+        # Failed messages go to the queue's dead-letter queue instead of looping.
+        default-requeue-rejected: false
+        retry:
+          enabled: true
+          max-attempts: 4
+          initial-interval: 1s
+          multiplier: 2
+          max-interval: 10s
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${AUTH_ISSUER_URI:http://localhost:9000}
+          jwk-set-uri: ${AUTH_JWK_SET_URI:http://localhost:9000/oauth2/jwks}
+          audiences: ${AUTH_AUDIENCE:ifp-api}
+          jws-algorithms: RS256
+          authorities-claim-name: roles
+          authority-prefix: ROLE_
+
+ifp:
+  messaging:
+    relay:
+      # This service consumes events only; it has no outbox to publish.
+      enabled: false
+
 server:
   port: ${SERVER_PORT:8084}
   shutdown: graceful

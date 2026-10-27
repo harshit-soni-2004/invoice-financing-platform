@@ -1,10 +1,27 @@
 package com.ifp.auth.web;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ifp.auth.support.AbstractIntegrationTest;
 import com.ifp.auth.user.UserAccount;
+import com.ifp.messaging.EventTopology;
 import org.junit.jupiter.api.Test;
+import org.springframework.amqp.core.AmqpAdmin;
+import org.springframework.amqp.core.BindingBuilder;
+import org.springframework.amqp.core.Message;
+import org.springframework.amqp.core.Queue;
+import org.springframework.amqp.core.TopicExchange;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.ResultActions;
+
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.not;
@@ -16,6 +33,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class RegistrationApiIT extends AbstractIntegrationTest {
+
+    @Autowired
+    private AmqpAdmin amqpAdmin;
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
+    @Autowired
+    private ObjectMapper objectMapper;
+    @Autowired
+    private JdbcTemplate jdbc;
 
     @Test
     void sellerRegistersAndIsActive() throws Exception {
@@ -67,6 +93,51 @@ class RegistrationApiIT extends AbstractIntegrationTest {
         register(email.toUpperCase(), PASSWORD, "FINANCIER")
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("DUPLICATE_EMAIL"));
+    }
+
+    @Test
+    void registrationPublishesUserRegisteredOnceAndNeverThePassword() throws Exception {
+        // Not exclusive: the template may receive on a different connection than the admin declared on.
+        Queue probe = new Queue("test.probe." + UUID.randomUUID(), false, false, false);
+        amqpAdmin.declareQueue(probe);
+        amqpAdmin.declareBinding(BindingBuilder.bind(probe).to(new TopicExchange(EventTopology.EXCHANGE)).with("user.registered"));
+        String email = uniqueEmail("events");
+
+        List<JsonNode> mine = new ArrayList<>();
+        UUID userId;
+        try {
+            register(email, PASSWORD, "SELLER").andExpect(status().isCreated());
+            register(email, PASSWORD, "SELLER").andExpect(status().isConflict());
+            userId = users.findByEmail(email).orElseThrow().getId();
+
+            Instant deadline = Instant.now().plusSeconds(15);
+            while (Instant.now().isBefore(deadline) && mine.isEmpty()) {
+                Message message = rabbitTemplate.receive(probe.getName(), 500);
+                if (message != null) {
+                    String body = new String(message.getBody(), StandardCharsets.UTF_8);
+                    assertThat(body).doesNotContain(PASSWORD).doesNotContain("passwordHash");
+                    JsonNode envelope = objectMapper.readTree(body);
+                    if (envelope.path("aggregateId").asText().equals(userId.toString())) {
+                        mine.add(envelope);
+                    }
+                }
+            }
+            // A second (duplicate-email) event would have arrived by now if one had been written.
+            Message extra = rabbitTemplate.receive(probe.getName(), 1000);
+            if (extra != null) {
+                assertThat(objectMapper.readTree(extra.getBody()).path("aggregateId").asText()).isNotEqualTo(userId.toString());
+            }
+        } finally {
+            amqpAdmin.deleteQueue(probe.getName());
+        }
+        assertThat(mine).hasSize(1);
+        JsonNode envelope = mine.getFirst();
+        assertThat(envelope.path("eventType").asText()).isEqualTo("UserRegistered");
+        assertThat(envelope.path("producer").asText()).isEqualTo("auth-service");
+        assertThat(envelope.path("payload").path("email").asText()).isEqualTo(email);
+        assertThat(envelope.path("payload").path("role").asText()).isEqualTo("SELLER");
+        assertThat(jdbc.queryForObject("select count(*) from outbox_events where aggregate_id = ?", Integer.class,
+                userId.toString())).isEqualTo(1);
     }
 
     @Test

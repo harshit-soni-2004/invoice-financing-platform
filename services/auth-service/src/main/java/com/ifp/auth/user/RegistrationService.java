@@ -1,5 +1,6 @@
 package com.ifp.auth.user;
 
+import com.ifp.messaging.OutboxWriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -14,15 +15,18 @@ import java.util.UUID;
 public class RegistrationService {
 
     private static final Logger log = LoggerFactory.getLogger(RegistrationService.class);
+    public static final String USER_REGISTERED = "user.registered";
 
     private final UserAccountRepository users;
     private final PasswordEncoder passwordEncoder;
     private final Clock clock;
+    private final OutboxWriter outbox;
 
-    public RegistrationService(UserAccountRepository users, PasswordEncoder passwordEncoder, Clock clock) {
+    public RegistrationService(UserAccountRepository users, PasswordEncoder passwordEncoder, Clock clock, OutboxWriter outbox) {
         this.users = users;
         this.passwordEncoder = passwordEncoder;
         this.clock = clock;
+        this.outbox = outbox;
     }
 
     /** The password must already satisfy {@link PasswordPolicy}; the request DTO validates it. */
@@ -46,7 +50,13 @@ public class RegistrationService {
             }
             throw e;
         }
+        outbox.append(USER_REGISTERED, "UserRegistered", "USER", account.getId(), account.getId(),
+                new UserRegistered(account.getId(), account.getEmail(), account.getDisplayName(), account.getRole().name()));
         log.info("User registered: id={} role={} status={}", account.getId(), account.getRole(), account.getStatus());
         return account;
+    }
+
+    /** The only event that carries contact details; notification-service needs them to address mail. */
+    public record UserRegistered(UUID userId, String email, String displayName, String role) {
     }
 }

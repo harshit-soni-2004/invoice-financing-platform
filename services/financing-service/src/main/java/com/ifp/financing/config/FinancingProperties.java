@@ -24,6 +24,7 @@ import java.time.ZoneId;
  * @param minDaysToMaturity        an invoice must be at least this many days from its due date to be financed
  * @param maxInstallments          largest number of repayment installments an offer may specify
  * @param offerExpirySweepInterval how often expired offers are marked EXPIRED
+ * @param repaymentReminderDays    an unpaid installment due within this many days gets a "due soon" reminder
  */
 @Validated
 @ConfigurationProperties(prefix = "financing")
@@ -34,5 +35,6 @@ public record FinancingProperties(
         @NotNull Duration maxOfferValidity,
         @PositiveOrZero int minDaysToMaturity,
         @Min(1) @Max(60) int maxInstallments,
-        @NotNull Duration offerExpirySweepInterval) {
+        @NotNull Duration offerExpirySweepInterval,
+        @Min(1) @Max(30) int repaymentReminderDays) {
 }

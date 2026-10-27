@@ -133,6 +133,25 @@ class GatewaySecurityIT extends AbstractGatewayIT {
     }
 
     @Test
+    void notificationsNeedATokenAndAuditEventsNeedAdmin() {
+        client().get().uri("/api/notifications").exchange().expectStatus().isUnauthorized();
+        int beforeNotifications = DownstreamStub.receivedFor("/api/notifications").size();
+        client().get().uri("/api/notifications").header(AUTHORIZATION, bearer(TestTokens.seller(UUID.randomUUID())))
+                .exchange().expectStatus().isOk();
+        assertThat(DownstreamStub.receivedFor("/api/notifications")).hasSize(beforeNotifications + 1);
+
+        int beforeAudit = DownstreamStub.receivedFor("/api/audit-events").size();
+        client().get().uri("/api/audit-events").header(AUTHORIZATION, bearer(TestTokens.financier(UUID.randomUUID())))
+                .exchange()
+                .expectStatus().isForbidden()
+                .expectBody().jsonPath("$.code").isEqualTo("ACCESS_DENIED");
+        assertThat(DownstreamStub.receivedFor("/api/audit-events")).hasSize(beforeAudit);
+        client().get().uri("/api/audit-events").header(AUTHORIZATION, bearer(TestTokens.admin(UUID.randomUUID())))
+                .exchange().expectStatus().isOk();
+        assertThat(DownstreamStub.receivedFor("/api/audit-events")).hasSize(beforeAudit + 1);
+    }
+
+    @Test
     void registrationIsPublicAndRoutedToAuthService() {
         int before = DownstreamStub.receivedFor("/api/auth/register").size();
 

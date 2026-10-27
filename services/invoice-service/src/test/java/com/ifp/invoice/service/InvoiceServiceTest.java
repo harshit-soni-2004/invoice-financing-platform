@@ -12,6 +12,7 @@ import com.ifp.invoice.repository.InvoiceRepository;
 import com.ifp.invoice.repository.InvoiceStatusHistoryRepository;
 import com.ifp.invoice.security.Actor;
 import com.ifp.invoice.security.Role;
+import com.ifp.messaging.OutboxWriter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -52,6 +53,8 @@ class InvoiceServiceTest {
     private InvoiceRepository invoices;
     @Mock
     private InvoiceStatusHistoryRepository history;
+    @Mock
+    private OutboxWriter outbox;
 
     private InvoiceService service;
 
@@ -65,7 +68,7 @@ class InvoiceServiceTest {
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         InvoicePolicy policy = new InvoicePolicy(
                 new InvoiceProperties(ZoneId.of("Asia/Kolkata"), new BigDecimal("100000000.00"), 180, 7), clock);
-        service = new InvoiceService(invoices, history, policy, clock);
+        service = new InvoiceService(invoices, history, policy, clock, outbox);
     }
 
     private static InvoiceDetails details(String number, LocalDate dueDate) {
@@ -80,7 +83,14 @@ class InvoiceServiceTest {
 
     @Test
     void createAssignsSellerFromAuthenticatedActorAndRecordsHistory() {
+        when(invoices.saveAndFlush(any())).thenAnswer(call -> {
+            Invoice saved = call.getArgument(0);
+            ReflectionTestUtils.setField(saved, "version", 0L);
+            return saved;
+        });
         Invoice created = service.create(seller, details("INV-1", TODAY.plusDays(60)));
+        verify(outbox).append(eq("invoice.created"), eq("InvoiceCreated"), eq("INVOICE"), eq(created.getId()),
+                eq(seller.userId()), eq(InvoiceEvents.InvoiceChanged.of(created, null)));
 
         assertThat(created.getSellerId()).isEqualTo(seller.userId());
         assertThat(created.getStatus()).isEqualTo(InvoiceStatus.DRAFT);
@@ -206,6 +216,81 @@ class InvoiceServiceTest {
         assertThat(entry.getValue().getActorRole()).isEqualTo("ADMIN");
         assertThat(entry.getValue().getReason()).isEqualTo("Buyer disputes");
         assertThat(entry.getValue().getOccurredAt()).isEqualTo(NOW);
+
+        ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
+        verify(outbox).append(eq("invoice.rejected"), eq("InvoiceRejected"), eq("INVOICE"), eq(invoice.getId()),
+                eq(admin.userId()), payload.capture());
+        InvoiceEvents.InvoiceChanged event = (InvoiceEvents.InvoiceChanged) payload.getValue();
+        assertThat(event.status()).isEqualTo(InvoiceStatus.REJECTED);
+        assertThat(event.previousStatus()).isEqualTo(InvoiceStatus.SUBMITTED);
+        assertThat(event.sellerId()).isEqualTo(seller.userId());
+        assertThat(event.amount()).isEqualByComparingTo("500000.00");
+    }
+
+    @Test
+    void failedTransitionPublishesNothing() {
+        Invoice invoice = persistedDraft(seller, TODAY.plusDays(60));
+        when(invoices.findById(invoice.getId())).thenReturn(Optional.of(invoice));
+
+        assertThatThrownBy(() -> service.verify(admin, invoice.getId(), ExpectedVersion.ANY))
+                .isInstanceOf(InvalidStatusTransitionException.class);
+        verify(outbox, never()).append(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void settlementOvertakingDisbursementAppliesBothStepsAsSystem() {
+        Invoice invoice = listedInvoice();
+        UUID eventActor = UUID.randomUUID();
+
+        assertThat(service.applyFinancingOutcome(invoice.getId(), InvoiceStatus.SETTLED, eventActor)).isTrue();
+
+        assertThat(invoice.getStatus()).isEqualTo(InvoiceStatus.SETTLED);
+        assertThat(invoice.getFinancedAt()).isEqualTo(NOW);
+        assertThat(invoice.getSettledAt()).isEqualTo(NOW);
+        ArgumentCaptor<InvoiceStatusHistory> entries = ArgumentCaptor.forClass(InvoiceStatusHistory.class);
+        verify(history, org.mockito.Mockito.times(2)).save(entries.capture());
+        assertThat(entries.getAllValues()).extracting(InvoiceStatusHistory::getToStatus)
+                .containsExactly(InvoiceStatus.FINANCED, InvoiceStatus.SETTLED);
+        assertThat(entries.getAllValues()).allSatisfy(entry -> {
+            assertThat(entry.getActorRole()).isEqualTo("SYSTEM");
+            assertThat(entry.getActorId()).isEqualTo(eventActor);
+        });
+        verify(outbox).append(eq("invoice.financed"), eq("InvoiceFinanced"), any(), any(), eq(eventActor), any());
+        verify(outbox).append(eq("invoice.settled"), eq("InvoiceSettled"), any(), any(), eq(eventActor), any());
+    }
+
+    @Test
+    void alreadyAppliedFinancingOutcomesAreNoOps() {
+        Invoice invoice = listedInvoice();
+        invoice.markFinanced(NOW);
+        invoice.markSettled(NOW);
+
+        assertThat(service.applyFinancingOutcome(invoice.getId(), InvoiceStatus.FINANCED, null)).isFalse();
+        assertThat(service.applyFinancingOutcome(invoice.getId(), InvoiceStatus.SETTLED, null)).isFalse();
+        verify(invoices, never()).saveAndFlush(any());
+        verify(outbox, never()).append(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void financingOutcomeForAnInvoiceNotListedIsRejected() {
+        Invoice invoice = persistedDraft(seller, TODAY.plusDays(60));
+        invoice.submit(NOW);
+        when(invoices.findById(invoice.getId())).thenReturn(Optional.of(invoice));
+
+        assertThatThrownBy(() -> service.applyFinancingOutcome(invoice.getId(), InvoiceStatus.FINANCED, null))
+                .isInstanceOf(InvalidStatusTransitionException.class);
+        assertThat(invoice.getStatus()).isEqualTo(InvoiceStatus.SUBMITTED);
+        verify(outbox, never()).append(any(), any(), any(), any(), any(), any());
+    }
+
+    private Invoice listedInvoice() {
+        Invoice invoice = persistedDraft(seller, TODAY.plusDays(60));
+        invoice.submit(NOW);
+        invoice.confirmBuyer(admin.userId(), NOW);
+        invoice.verify(admin.userId(), NOW);
+        invoice.listForFinancing(NOW);
+        when(invoices.findById(invoice.getId())).thenReturn(Optional.of(invoice));
+        return invoice;
     }
 
     @Test

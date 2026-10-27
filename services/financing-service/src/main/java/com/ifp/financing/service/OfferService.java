@@ -64,10 +64,11 @@ public class OfferService {
     private final StatusHistoryRecorder history;
     private final FinancingProperties properties;
     private final Clock clock;
+    private final FinancingEvents events;
 
     public OfferService(FinanceableInvoiceRepository invoices, FinancingOfferRepository offers,
                         FinancingAgreementRepository agreements, StatusHistoryRepository historyRepository,
-                        StatusHistoryRecorder history, FinancingProperties properties, Clock clock) {
+                        StatusHistoryRecorder history, FinancingProperties properties, Clock clock, FinancingEvents events) {
         this.invoices = invoices;
         this.offers = offers;
         this.agreements = agreements;
@@ -75,6 +76,7 @@ public class OfferService {
         this.history = history;
         this.properties = properties;
         this.clock = clock;
+        this.events = events;
     }
 
     // ---- Opportunities ----
@@ -132,6 +134,7 @@ public class OfferService {
             throw e;
         }
         history.record(StatusHistoryEntry.OFFER, offer.getId(), null, OfferStatus.OFFERED, actor, null, now);
+        events.offer(offer, null, actor.userId());
         log.info("Offer {} created for invoice {}", offer.getId(), invoiceId);
         return offer;
     }
@@ -169,6 +172,7 @@ public class OfferService {
         offer.withdraw(reason, now);
         offers.saveAndFlush(offer);
         history.record(StatusHistoryEntry.OFFER, offer.getId(), OfferStatus.OFFERED, OfferStatus.WITHDRAWN, actor, offer.getStatusReason(), now);
+        events.offer(offer, OfferStatus.OFFERED, actor.userId());
         return offer;
     }
 
@@ -180,6 +184,7 @@ public class OfferService {
         offer.reject(reason, now);
         offers.saveAndFlush(offer);
         history.record(StatusHistoryEntry.OFFER, offer.getId(), OfferStatus.OFFERED, OfferStatus.REJECTED, actor, offer.getStatusReason(), now);
+        events.offer(offer, OfferStatus.OFFERED, actor.userId());
         return offer;
     }
 
@@ -213,10 +218,13 @@ public class OfferService {
         }
         history.record(StatusHistoryEntry.OFFER, offer.getId(), OfferStatus.OFFERED, OfferStatus.ACCEPTED, actor, null, now);
         history.record(StatusHistoryEntry.AGREEMENT, agreement.getId(), null, AgreementStatus.PENDING_APPROVAL, actor, null, now);
+        events.offer(offer, OfferStatus.OFFERED, actor.userId());
+        events.agreement(agreement, null, actor.userId());
         for (FinancingOffer competing : offers.findByInvoiceIdAndStatus(invoice.getInvoiceId(), OfferStatus.OFFERED)) {
             competing.close(ANOTHER_OFFER_ACCEPTED, now);
             history.recordSystem(StatusHistoryEntry.OFFER, competing.getId(), OfferStatus.OFFERED, OfferStatus.CLOSED,
                     ANOTHER_OFFER_ACCEPTED, now);
+            events.offer(competing, OfferStatus.OFFERED, null);
         }
         offers.flush();
         log.info("Offer {} accepted; agreement {} created", offer.getId(), agreement.getId());
@@ -232,6 +240,7 @@ public class OfferService {
             offer.expire(now);
             history.recordSystem(StatusHistoryEntry.OFFER, offer.getId(), OfferStatus.OFFERED, OfferStatus.EXPIRED,
                     offer.getStatusReason(), now);
+            events.offer(offer, OfferStatus.OFFERED, null);
         }
         offers.flush();
         return due.size();

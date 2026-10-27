@@ -20,6 +20,14 @@ spring:
   flyway:
     locations: classpath:db/migration
 
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:}
+    password: ${RABBITMQ_PASSWORD:}
+    # The outbox relay marks an event published only after the broker confirms it.
+    publisher-confirm-type: correlated
+
 auth:
   # Browser-visible URL of this server. Every resource server expects exactly this value in `iss`.
   issuer: ${AUTH_ISSUER_URI:http://localhost:9000}

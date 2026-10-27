@@ -53,8 +53,9 @@ public class SecurityConfig {
                 .authorizeExchange(exchange -> exchange
                         .pathMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
                         .pathMatchers(HttpMethod.POST, "/api/auth/register").permitAll()
-                        // Coarse edge rule; auth-service enforces the same role again on each endpoint.
+                        // Coarse edge rules; the owning service enforces the same role again on each endpoint.
                         .pathMatchers("/api/admin/**").hasRole("ADMIN")
+                        .pathMatchers("/api/audit-events", "/api/audit-events/**").hasRole("ADMIN")
                         .pathMatchers("/api/**").authenticated()
                         .anyExchange().denyAll())
                 .oauth2ResourceServer(oauth -> oauth

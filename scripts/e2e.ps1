@@ -29,7 +29,7 @@ function Read-DotEnv([string] $path) {
     foreach ($line in Get-Content $path) {
         if ($line -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$') { $values[$Matches[1]] = $Matches[2].Trim() }
     }
-    foreach ($required in 'AUTH_DB_PASSWORD', 'INVOICE_DB_PASSWORD', 'REDIS_PASSWORD') {
+    foreach ($required in 'AUTH_DB_PASSWORD', 'INVOICE_DB_PASSWORD', 'REDIS_PASSWORD', 'RABBITMQ_USER', 'RABBITMQ_PASSWORD') {
         if (-not $values[$required]) { throw "$required is missing in .env" }
     }
     return $values
@@ -89,7 +89,7 @@ New-Item -ItemType Directory -Force $logDir | Out-Null
 Get-ChildItem $logDir -File | Remove-Item
 
 Write-Host '== Infrastructure'
-& docker compose up -d --wait mysql redis
+& docker compose up -d --wait mysql redis rabbitmq
 if ($LASTEXITCODE -ne 0) { throw 'docker compose up failed' }
 
 $keyFile = Join-Path $root 'infra\keys\jwt-signing-key.pem'
@@ -107,6 +107,9 @@ $common = @{
     AUTH_JWK_SET_URI = "$issuer/oauth2/jwks"
     AUTH_AUDIENCE    = 'ifp-api'
     DB_PORT          = $(if ($dotenv['MYSQL_PORT']) { $dotenv['MYSQL_PORT'] } else { '3307' })
+    RABBITMQ_PORT     = $(if ($dotenv['RABBITMQ_PORT']) { $dotenv['RABBITMQ_PORT'] } else { '5672' })
+    RABBITMQ_USER     = $dotenv['RABBITMQ_USER']
+    RABBITMQ_PASSWORD = $dotenv['RABBITMQ_PASSWORD']
 }
 $e2ePassword = New-RandomSecret
 $processes = @()
@@ -153,7 +156,7 @@ try {
 
     Write-Host '== Scanning logs for secrets'
     $secrets = @($e2ePassword, $dotenv['AUTH_DB_PASSWORD'], $dotenv['INVOICE_DB_PASSWORD'], $dotenv['REDIS_PASSWORD'],
-        $dotenv['MYSQL_ROOT_PASSWORD']) | Where-Object { $_ }
+        $dotenv['MYSQL_ROOT_PASSWORD'], $dotenv['RABBITMQ_PASSWORD']) | Where-Object { $_ }
     $leaks = 0
     foreach ($log in Get-ChildItem $logDir -Filter '*.log') {
         $content = Get-Content $log.FullName -Raw

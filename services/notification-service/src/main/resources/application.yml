@@ -2,6 +2,59 @@ spring:
   application:
     name: notification-service
 
+  datasource:
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3307}/${DB_NAME:notification_db}?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true
+    username: ${DB_USERNAME:notification_svc}
+    password: ${DB_PASSWORD:}
+
+  flyway:
+    locations: classpath:db/migration
+
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:}
+    password: ${RABBITMQ_PASSWORD:}
+    listener:
+      simple:
+        # Failed messages go to the queue's dead-letter queue instead of looping.
+        default-requeue-rejected: false
+        retry:
+          enabled: true
+          max-attempts: 4
+          initial-interval: 1s
+          multiplier: 2
+          max-interval: 10s
+
+  # Local SMTP sink only (MailHog). No real mail provider is configured anywhere.
+  mail:
+    host: ${MAIL_HOST:localhost}
+    port: ${MAIL_PORT:1025}
+    properties:
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 5000
+      mail.smtp.writetimeout: 5000
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${AUTH_ISSUER_URI:http://localhost:9000}
+          jwk-set-uri: ${AUTH_JWK_SET_URI:http://localhost:9000/oauth2/jwks}
+          audiences: ${AUTH_AUDIENCE:ifp-api}
+          jws-algorithms: RS256
+          authorities-claim-name: roles
+          authority-prefix: ROLE_
+
+ifp:
+  messaging:
+    relay:
+      # This service consumes events only; it has no outbox to publish.
+      enabled: false
+
+notification:
+  from: ${NOTIFICATION_FROM:no-reply@ifp.local}
+
 server:
   port: ${SERVER_PORT:8083}
   shutdown: graceful

@@ -4,7 +4,7 @@ A portfolio-quality **simulation** of invoice financing: sellers submit invoices
 
 > No real banking, payment gateway or money movement is involved. All amounts are in INR and handled as `BigDecimal` / `DECIMAL(19,2)`.
 
-**Status:** Phase 4 is complete. auth-service issues RS256 tokens through Authorization Code + PKCE, the gateway validates them, routes `/api/**`, applies CORS and Redis rate limits, and each service validates every token again itself. financing-service implements offers from competing financiers, agreements with an explicit state machine, idempotent simulated disbursement, repayment schedules, partial and full repayments, overdue tracking and settlement. Its invoice read model is fed by invoice events from Phase 5 onwards. See [docs/architecture.md](docs/architecture.md) for the design, the financial rules and the roadmap.
+**Status:** Phase 5 is complete. auth-service issues RS256 tokens through Authorization Code + PKCE, the gateway validates them, routes `/api/**`, applies CORS and Redis rate limits, and each service validates every token again itself. financing-service implements offers from competing financiers, agreements with an explicit state machine, idempotent simulated disbursement, repayment schedules, partial and full repayments, overdue tracking and settlement. Services exchange events over RabbitMQ through a transactional outbox, with idempotent consumers, bounded retries and dead-letter queues. Listed invoices reach financing-service's read model, disbursement and settlement update the invoice, notification-service emails the parties through MailHog, and audit-service keeps an append-only trail of every event. See [docs/architecture.md](docs/architecture.md) for the design, the financial rules and the roadmap.
 
 ## Stack
 
@@ -49,7 +49,7 @@ Stop with `docker compose down`. Data survives in named volumes. `docker compose
 ./mvnw verify        # Windows: .\mvnw.cmd verify
 ```
 
-Unit tests (`*Test`, `*Tests`) run in the `test` phase, and integration tests (`*IT`, Testcontainers) run in `verify`. Integration tests need Docker running. They start their own disposable MySQL and Redis containers and never touch the Compose data. One module only: `.\mvnw.cmd verify -pl services/gateway -am`.
+Unit tests (`*Test`, `*Tests`) run in the `test` phase, and integration tests (`*IT`, Testcontainers) run in `verify`. Integration tests need Docker running. They start their own disposable MySQL, Redis, RabbitMQ and MailHog containers and never touch the Compose data. One module only: `.\mvnw.cmd verify -pl services/gateway -am`.
 
 ### End-to-end check
 
@@ -69,6 +69,22 @@ It registers two sellers and a financier with a random password, signs in throug
 
 Service logs are written to `target/e2e/` and scanned for tokens, private keys and the configured passwords; the run fails if anything is found. Logs are deleted after a clean run. Only the processes the script started are stopped.
 
+### Full backend flow on disposable infrastructure
+
+`scripts/e2e-full.ps1` needs no `.env`. It starts its own MySQL, RabbitMQ, Redis and MailHog from `infra/e2e/compose.e2e.yml` under a unique project name, with random passwords, ephemeral ports and data in tmpfs. It then starts all five services and the gateway on free ports, with a throwaway signing key and bootstrap admin, and runs `scripts/e2e/E2eFullFlowTest.java`:
+
+```powershell
+.\scripts\e2e-full.ps1              # -SkipBuild reuses existing jars; -KeepInfrastructure leaves the containers up
+```
+
+The test registers a seller and a financier and has the admin activate the financier. It then walks an invoice through submission, buyer confirmation, verification and listing, and a financing deal through offer, acceptance, approval, simulated disbursement (including an idempotent replay), a partial and a final repayment, and settlement. It checks that:
+- the listed invoice reaches financing-service, and disbursement and settlement move the invoice to `FINANCED` and `SETTLED`;
+- each party receives exactly the expected emails in MailHog, none of them containing amounts;
+- the audit trail holds every invoice, offer and agreement event, with the request's correlation ID and without email addresses, and is closed to non-admins;
+- every dead-letter queue and the unrouted queue are empty at the end.
+
+The development stack and its volumes are never touched, and the disposable containers are removed afterwards.
+
 ## Running the services locally
 
 ### 1. Signing key (development only)
@@ -79,13 +95,15 @@ Service logs are written to `target/e2e/` and scanned for tokens, private keys a
 
 This writes an RSA-3072 PKCS#8 key to `infra/keys/jwt-signing-key.pem` (git-ignored, readable only by you). It never overwrites an existing key. Never commit it and never use it outside your machine; production keys belong in a secret store. auth-service refuses to start without a key unless the `dev` profile is active, which falls back to an in-memory key that changes on every restart (all tokens become invalid).
 
-### 2. Start auth-service, invoice-service, financing-service and the gateway
+### 2. Start the services and the gateway
 
-Build once, then start each service in its own terminal from the repository root. Define `Get-DotEnv` in each terminal; it reads a value from `.env` without printing it.
+Build once, then start each service in its own terminal from the repository root. Define `Get-DotEnv` in each terminal; it reads a value from `.env` without printing it. Every service except the gateway also needs the RabbitMQ credentials.
 
 ```powershell
-.\mvnw.cmd -B package -DskipTests -pl "services/auth-service,services/invoice-service,services/financing-service,services/gateway" -am
+.\mvnw.cmd -B package -DskipTests
 function Get-DotEnv($name) { (Get-Content .env | Select-String "^$name=").Line.Split('=', 2)[1] }
+# In each service terminal (not needed for the gateway):
+$env:RABBITMQ_USER = Get-DotEnv RABBITMQ_USER; $env:RABBITMQ_PASSWORD = Get-DotEnv RABBITMQ_PASSWORD
 
 # Terminal 1: auth-service on :9000
 $env:DB_PASSWORD = Get-DotEnv AUTH_DB_PASSWORD
@@ -101,22 +119,37 @@ java -jar services/invoice-service/target/invoice-service-0.1.0-SNAPSHOT.jar
 $env:DB_PASSWORD = Get-DotEnv FINANCING_DB_PASSWORD
 java -jar services/financing-service/target/financing-service-0.1.0-SNAPSHOT.jar
 
-# Terminal 4: gateway on :8080
+# Terminal 4: notification-service on :8083 (mail goes to MailHog, http://localhost:8025)
+$env:DB_PASSWORD = Get-DotEnv NOTIFICATION_DB_PASSWORD
+java -jar services/notification-service/target/notification-service-0.1.0-SNAPSHOT.jar
+
+# Terminal 5: audit-service on :8084 (Flyway uses the migrator user, the app the append-only user)
+$env:DB_PASSWORD = Get-DotEnv AUDIT_DB_PASSWORD
+$env:DB_MIGRATOR_PASSWORD = Get-DotEnv AUDIT_DB_MIGRATOR_PASSWORD
+java -jar services/audit-service/target/audit-service-0.1.0-SNAPSHOT.jar
+
+# Terminal 6: gateway on :8080
 $env:REDIS_PASSWORD = Get-DotEnv REDIS_PASSWORD
 java -jar services/gateway/target/gateway-0.1.0-SNAPSHOT.jar
 ```
 
+The dev seed invoices predate the event pipeline and are never published, so they do not appear in financing opportunities. Invoices you create and list through the API do. Inspect queues, including each `<queue>.dlq`, at http://localhost:15672.
+
 | Variable | Default | Used by | Purpose |
 |---|---|---|---|
 | `AUTH_ISSUER_URI` | `http://localhost:9000` | all | Issuer that tokens carry and services require |
-| `AUTH_JWK_SET_URI` | `http://localhost:9000/oauth2/jwks` | gateway, invoice, financing | Where signing keys are fetched |
+| `AUTH_JWK_SET_URI` | `http://localhost:9000/oauth2/jwks` | gateway, invoice, financing, notification, audit | Where signing keys are fetched |
 | `AUTH_AUDIENCE` | `ifp-api` | all | Required `aud` value |
 | `AUTH_JWT_PRIVATE_KEY_LOCATION` | (none) | auth | PKCS#8 PEM signing key |
 | `AUTH_SPA_REDIRECT_URIS` / `AUTH_SPA_ALLOWED_ORIGINS` | `http://localhost:4200/...` | auth | Registered SPA callback and origins |
 | `ADMIN_BOOTSTRAP_EMAIL` / `ADMIN_BOOTSTRAP_PASSWORD` | (none) | auth | Optional first ADMIN, created only if none exists |
-| `DB_HOST` / `DB_PORT` / `DB_PASSWORD` | `localhost` / `3307` / (none) | auth, invoice, financing | Each service's own database user |
-| `AUTH_SERVICE_URI` / `INVOICE_SERVICE_URI` / `FINANCING_SERVICE_URI` | `http://localhost:9000` / `:8081` / `:8082` | gateway | Route targets |
+| `DB_HOST` / `DB_PORT` / `DB_PASSWORD` | `localhost` / `3307` / (none) | all except gateway | Each service's own database user |
+| `DB_MIGRATOR_USERNAME` / `DB_MIGRATOR_PASSWORD` | `audit_migrator` / (none) | audit | Schema owner used only by Flyway |
+| `RABBITMQ_HOST` / `RABBITMQ_PORT` / `RABBITMQ_USER` / `RABBITMQ_PASSWORD` | `localhost` / `5672` / (none) / (none) | all except gateway | Event broker |
+| `MAIL_HOST` / `MAIL_PORT` / `NOTIFICATION_FROM` | `localhost` / `1025` / `no-reply@ifp.local` | notification | Local SMTP sink (MailHog) and sender address |
+| `AUTH_SERVICE_URI` / `INVOICE_SERVICE_URI` / `FINANCING_SERVICE_URI` / `NOTIFICATION_SERVICE_URI` / `AUDIT_SERVICE_URI` | `http://localhost:9000` / `:8081` / `:8082` / `:8083` / `:8084` | gateway | Route targets |
 | `FINANCING_MAX_ADVANCE_RATIO` / `FINANCING_MAX_ANNUAL_RATE` / `FINANCING_MAX_OFFER_VALIDITY` / `FINANCING_MIN_DAYS_TO_MATURITY` / `FINANCING_MAX_INSTALLMENTS` | `0.98` / `0.3600` / `14d` / `7` / `12` | financing | Bounds on offer terms (financiers always set the actual terms) |
+| `FINANCING_REPAYMENT_REMINDER_DAYS` / `FINANCING_REPAYMENT_REMINDER_SWEEP_INTERVAL` | `3` / `15m` | financing | "Due soon" window and how often reminders are checked |
 | `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` | `localhost` / `6379` / (none) | gateway | Rate-limit store |
 | `GATEWAY_CORS_ALLOWED_ORIGINS` | `http://localhost:4200` | gateway | Explicit origins (`*` is rejected at startup) |
 | `GATEWAY_TRUSTED_PROXY_HOPS` | `0` | gateway | Trusted `X-Forwarded-For` hops |

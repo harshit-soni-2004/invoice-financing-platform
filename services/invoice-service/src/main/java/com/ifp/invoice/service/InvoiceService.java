@@ -11,6 +11,7 @@ import com.ifp.invoice.repository.InvoiceSpecifications;
 import com.ifp.invoice.repository.InvoiceStatusHistoryRepository;
 import com.ifp.invoice.security.Actor;
 import com.ifp.invoice.security.Role;
+import com.ifp.messaging.OutboxWriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -28,7 +29,7 @@ import java.util.function.Consumer;
 
 /**
  * Application service for invoices. Every write runs in one transaction that covers the invoice row and its
- * history row (and, from Phase 5, the outbox row). Role checks are repeated here as defense in depth; ownership
+ * history row and its outbox event. Role checks are repeated here as defense in depth; ownership
  * is enforced by loading seller-owned invoices with the caller's ID.
  */
 @Service
@@ -38,17 +39,23 @@ public class InvoiceService {
     private static final Logger log = LoggerFactory.getLogger(InvoiceService.class);
     private static final String UNIQUE_SELLER_NUMBER = "uk_invoices_seller_number";
 
+    static final String SYSTEM_ROLE = "SYSTEM";
+    /** Recorded as the history actor when a financing event carries no actor. */
+    static final UUID SYSTEM_ACTOR = new UUID(0L, 0L);
+
     private final InvoiceRepository invoices;
     private final InvoiceStatusHistoryRepository history;
     private final InvoicePolicy policy;
     private final Clock clock;
+    private final OutboxWriter outbox;
 
     public InvoiceService(InvoiceRepository invoices, InvoiceStatusHistoryRepository history,
-                          InvoicePolicy policy, Clock clock) {
+                          InvoicePolicy policy, Clock clock, OutboxWriter outbox) {
         this.invoices = invoices;
         this.history = history;
         this.policy = policy;
         this.clock = clock;
+        this.outbox = outbox;
     }
 
     public Invoice create(Actor actor, InvoiceDetails details) {
@@ -62,6 +69,7 @@ public class InvoiceService {
         Invoice invoice = Invoice.createDraft(UUID.randomUUID(), actor.userId(), details, now);
         flushTranslatingDuplicates(invoice);
         record(invoice, null, actor, null, now);
+        publish(invoice, null, actor.userId());
         log.info("Invoice {} created as DRAFT", invoice.getId());
         return invoice;
     }
@@ -163,13 +171,57 @@ public class InvoiceService {
         // first, so a concurrent writer fails on the version check instead of deadlocking on the history FK lock.
         invoices.saveAndFlush(invoice);
         record(invoice, from, actor, invoice.getStatusReason(), now);
+        publish(invoice, from, actor.userId());
         log.info("Invoice {} moved {} -> {}", invoice.getId(), from, invoice.getStatus());
         return invoice;
+    }
+
+    /**
+     * Applies a financing outcome reported by financing-service. Redelivered or already-applied outcomes are
+     * no-ops. A settlement that overtakes its disbursement event applies both steps, so history stays complete.
+     *
+     * @param target FINANCED or SETTLED
+     * @return whether the invoice changed
+     */
+    public boolean applyFinancingOutcome(UUID invoiceId, InvoiceStatus target, UUID eventActorId) {
+        if (target != InvoiceStatus.FINANCED && target != InvoiceStatus.SETTLED) {
+            throw new IllegalArgumentException("Unsupported financing outcome " + target);
+        }
+        Invoice invoice = loadAny(invoiceId);
+        InvoiceStatus current = invoice.getStatus();
+        if (current == target || (target == InvoiceStatus.FINANCED && current == InvoiceStatus.SETTLED)) {
+            log.info("Invoice {} already {}; financing outcome {} ignored", invoiceId, current, target);
+            return false;
+        }
+        UUID actorId = eventActorId != null ? eventActorId : SYSTEM_ACTOR;
+        if (current != InvoiceStatus.FINANCED) {
+            // Throws InvalidStatusTransitionException unless the invoice is FINANCING_AVAILABLE.
+            systemTransition(invoice, actorId, invoice::markFinanced);
+        }
+        if (target == InvoiceStatus.SETTLED) {
+            systemTransition(invoice, actorId, invoice::markSettled);
+        }
+        return true;
+    }
+
+    private void systemTransition(Invoice invoice, UUID actorId, Consumer<Instant> change) {
+        InvoiceStatus from = invoice.getStatus();
+        Instant now = clock.instant();
+        change.accept(now);
+        invoices.saveAndFlush(invoice);
+        history.save(new InvoiceStatusHistory(invoice.getId(), from, invoice.getStatus(), actorId, SYSTEM_ROLE, null, now));
+        publish(invoice, from, actorId);
+        log.info("Invoice {} moved {} -> {} by financing event", invoice.getId(), from, invoice.getStatus());
     }
 
     private void record(Invoice invoice, InvoiceStatus from, Actor actor, String reason, Instant now) {
         history.save(new InvoiceStatusHistory(invoice.getId(), from, invoice.getStatus(), actor.userId(),
                 actor.primaryRole(), reason, now));
+    }
+
+    private void publish(Invoice invoice, InvoiceStatus from, UUID actorId) {
+        outbox.append(InvoiceEvents.routingKey(invoice.getStatus()), InvoiceEvents.eventType(invoice.getStatus()),
+                InvoiceEvents.AGGREGATE, invoice.getId(), actorId, InvoiceEvents.InvoiceChanged.of(invoice, from));
     }
 
     private void flushTranslatingDuplicates(Invoice invoice) {

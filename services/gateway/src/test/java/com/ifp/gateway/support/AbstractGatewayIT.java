@@ -33,6 +33,8 @@ public abstract class AbstractGatewayIT {
         registry.add("AUTH_SERVICE_URI", DownstreamStub::uri);
         registry.add("INVOICE_SERVICE_URI", DownstreamStub::uri);
         registry.add("FINANCING_SERVICE_URI", DownstreamStub::uri);
+        registry.add("NOTIFICATION_SERVICE_URI", DownstreamStub::uri);
+        registry.add("AUDIT_SERVICE_URI", DownstreamStub::uri);
     }
 
     protected WebTestClient client() {

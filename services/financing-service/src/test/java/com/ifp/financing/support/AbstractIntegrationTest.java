@@ -36,7 +36,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Tests isolate their data with fresh random user and invoice IDs instead of truncating tables.
  */
 @SpringBootTest
-@TestPropertySource(properties = "financing.offer-expiry-sweep-enabled=false")
+@TestPropertySource(properties = {"financing.offer-expiry-sweep-enabled=false", "financing.repayment-reminder-sweep-enabled=false"})
 @AutoConfigureMockMvc
 @Import(TestcontainersConfiguration.class)
 public abstract class AbstractIntegrationTest {

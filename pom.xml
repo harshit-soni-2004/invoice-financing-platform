@@ -20,6 +20,7 @@
 
     <modules>
         <module>platform-common</module>
+        <module>platform-messaging</module>
         <module>services/auth-service</module>
         <module>services/invoice-service</module>
         <module>services/financing-service</module>
@@ -49,6 +50,11 @@
             <dependency>
                 <groupId>com.ifp</groupId>
                 <artifactId>platform-common</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.ifp</groupId>
+                <artifactId>platform-messaging</artifactId>
                 <version>${project.version}</version>
             </dependency>
         </dependencies>

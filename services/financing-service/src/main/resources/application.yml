@@ -20,6 +20,24 @@ spring:
   flyway:
     locations: classpath:db/migration
 
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:}
+    password: ${RABBITMQ_PASSWORD:}
+    # The outbox relay marks an event published only after the broker confirms it.
+    publisher-confirm-type: correlated
+    listener:
+      simple:
+        # Failed messages go to the queue's dead-letter queue instead of looping.
+        default-requeue-rejected: false
+        retry:
+          enabled: true
+          max-attempts: 4
+          initial-interval: 1s
+          multiplier: 2
+          max-interval: 10s
+
   security:
     oauth2:
       resourceserver:
@@ -49,6 +67,8 @@ financing:
   min-days-to-maturity: 7
   max-installments: 12
   offer-expiry-sweep-interval: 60s
+  repayment-reminder-days: 3
+  repayment-reminder-sweep-interval: 15m
 
 management:
   endpoints:

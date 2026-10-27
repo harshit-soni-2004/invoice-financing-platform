@@ -84,9 +84,9 @@ Each service has its own MySQL database and its own database user. The init scri
 |---|---|---|
 | `auth_db` | auth-service | **Implemented (Phase 3):** `users` (email unique, case-insensitive; BCrypt hash; role; status; version) and Spring Authorization Server's `oauth2_authorization` (authorization codes and issued tokens, so codes stay single-use across restarts). The only client, `ifp-spa`, is registered in code and needs no consent screen, so there are no `oauth2_registered_client` or consent tables. **Phase 5:** `outbox_events` |
 | `invoice_db` | invoice-service | **Implemented (Phase 2):** `invoices` (unique `seller_id + invoice_number`, case-insensitive; `amount DECIMAL(19,2)`; CHECK constraints for positive amount, `currency = 'INR'`, `due_date > issue_date` and valid status; `version`) and `invoice_status_history` (FK to `invoices`). **Phase 5:** `outbox_events`, `processed_events` |
-| `financing_db` | financing-service | **Implemented (Phase 4):** `financeable_invoices` (read model ordered by invoice-service's row version), `financing_offers` (generated `open_financier_id` + unique `(invoice_id, open_financier_id)`: one open offer per financier per invoice), `financing_agreements` (unique `offer_id`; generated `live_invoice_id` unique so only one live agreement per invoice; CHECKs on repaid amounts and `total_repayable = advance + fee`), `disbursements` (unique `agreement_id` and `reference`), `repayment_installments` (unique `agreement_id + sequence_no`), `repayments` (CHECK `amount = principal + fee`), `repayment_allocations`, `idempotency_records` (unique `operation + actor_id + key`, SHA-256 request hash), `financing_status_history`. **Phase 5:** `outbox_events`, `processed_events` |
-| `notification_db` | notification-service | `recipients` (read model from `UserRegistered`), `notifications` (unique `event_id + recipient`), `processed_events` |
-| `audit_db` | audit-service | `audit_events` (unique `event_id`, JSON metadata). Runtime user has **SELECT/INSERT only**, so the trail is append-only at the database level |
+| `financing_db` | financing-service | **Implemented (Phase 4):** `financeable_invoices` (read model ordered by invoice-service's row version), `financing_offers` (generated `open_financier_id` + unique `(invoice_id, open_financier_id)`: one open offer per financier per invoice), `financing_agreements` (unique `offer_id`; generated `live_invoice_id` unique so only one live agreement per invoice; CHECKs on repaid amounts and `total_repayable = advance + fee`), `disbursements` (unique `agreement_id` and `reference`), `repayment_installments` (unique `agreement_id + sequence_no`), `repayments` (CHECK `amount = principal + fee`), `repayment_allocations`, `idempotency_records` (unique `operation + actor_id + key`, SHA-256 request hash), `financing_status_history`. **Phase 5:** `outbox_events`, `processed_events`, `repayment_reminders` |
+| `notification_db` | notification-service | **Implemented (Phase 5):** `recipients` (read model from `UserRegistered`), `notifications` (unique `event_id + recipient_id`; status `SENT` or `SKIPPED`, with a CHECK that `sent_at` is set exactly for `SENT`), `delivery_attempts` (every SMTP attempt and its outcome), `processed_events` |
+| `audit_db` | audit-service | **Implemented (Phase 5):** `audit_events` (unique `event_id`, sanitized JSON payload with `email` and `displayName` removed). Flyway runs as `audit_migrator`; the runtime user `audit_svc` has **SELECT/INSERT only**, so the trail is append-only at the database level |
 
 Common conventions:
 
@@ -204,10 +204,10 @@ Repayments also lock the installment rows. Under MySQL's REPEATABLE READ, a plai
 | `POST /api/financing/agreements/{id}/cancel` | SELLER (owner, while `PENDING_APPROVAL`) / FINANCIER (owner, while `APPROVED`) | Cancel before disbursement |
 | `GET /api/financing/agreements/{id}/disbursement` · `/schedule` · `/repayments` | parties / ADMIN | Disbursement, schedule with derived installment status, repayment history |
 | `POST /api/financing/agreements/{id}/repayments` | SELLER (owner) | Record simulated repayment (`Idempotency-Key` required) |
-| `GET /api/notifications` · `POST /api/notifications/{id}/read` | any (own) | Notifications |
-| `GET /api/audit-events?entityId=&eventType=&from=&to=` | ADMIN | Read-only audit queries |
+| `GET /api/notifications?page=&size=` | any (own) | Notifications sent or skipped for the caller, newest first |
+| `GET /api/audit-events?eventType=&aggregateType=&aggregateId=&actorId=&from=&to=&page=&size=` | ADMIN | Read-only audit queries |
 
-The auth and user endpoints (Phase 3), the invoice endpoints (Phase 2) and the financing endpoints (Phase 4) are **implemented** and routed by the gateway. Notification and audit rows are planned. Financing lists sort by whitelisted fields only (opportunities: `dueDate`, `amount`, `invoiceNumber`; offers: `createdAt`, `expiresAt`, `advanceAmount`; agreements: `createdAt`, `maturityDate`, `advanceAmount`).
+All endpoints above are **implemented** and routed by the gateway: invoices (Phase 2), auth and users (Phase 3), financing (Phase 4), notifications and audit (Phase 5). The gateway also checks the ADMIN role for `/api/audit-events` at the edge, and audit-service checks it again. Financing lists sort by whitelisted fields only (opportunities: `dueDate`, `amount`, `invoiceNumber`; offers: `createdAt`, `expiresAt`, `advanceAmount`; agreements: `createdAt`, `maturityDate`, `advanceAmount`).
 
 Errors use RFC 9457 `application/problem+json` with a machine-readable `code`:
 
@@ -240,23 +240,43 @@ Topic exchange `ifp.events`, routing key `<aggregate>.<event>` (for example `inv
 }
 ```
 
-| Event | Producer | Consumers |
+| Routing key → event type | Producer | Payload |
 |---|---|---|
-| `UserRegistered` | auth | notification (recipient directory), audit |
-| `InvoiceSubmitted`, `InvoiceBuyerConfirmed`, `InvoiceVerified`, `InvoiceRejected`, `InvoiceCancelled` | invoice | notification, audit |
-| `InvoiceListedForFinancing` | invoice | financing (read model), notification, audit |
-| `FinancingOfferCreated`, `FinancingOfferAccepted`, `FinancingOfferRejected` | financing | notification, audit |
-| `FinancingApproved`, `RepaymentRecorded` | financing | notification, audit |
-| `FinancingDisbursed`, `FinancingSettled` | financing | invoice (status), notification, audit |
+| `user.registered` → `UserRegistered` | auth | `userId`, `email`, `displayName`, `role` |
+| `invoice.<created\|submitted\|buyer_confirmed\|verified\|listed_for_financing\|financed\|settled\|rejected\|cancelled>` → `Invoice<Created\|Submitted\|…>` | invoice | Invoice snapshot (IDs, number, buyer name, amount, dates, status, `previousStatus`, row `sourceVersion`); no description, rejection reason or GSTIN |
+| `financing.offer_<created\|accepted\|rejected\|withdrawn\|expired\|closed>` → `FinancingOffer<…>` | financing | Offer snapshot |
+| `financing.<agreement_created\|approved\|rejected\|cancelled\|disbursed\|settled>` → `FinancingAgreementCreated`, `FinancingApproved`, … | financing | Agreement snapshot |
+| `financing.repayment_recorded` → `FinancingRepaymentRecorded` | financing | Repayment amount split into principal and fee, plus the agreement's resulting status |
+| `financing.repayment_<due_soon\|overdue>` → `FinancingRepaymentDueSoon`, `FinancingRepaymentOverdue` | financing (reminder sweep) | Agreement, installment number and due date; no amounts |
 
-Events carry IDs, amounts, dates and statuses. They never carry passwords, tokens or email addresses (notification-service resolves recipients from its own read model).
+A null `actorId` means the system made the change (offer expiry, competing offers closed, invoice withdrawn, reminders).
 
-Reliability (Phase 5):
+**Repayment reminders.** A financing-service sweep (`financing.repayment-reminder-sweep-interval`, default 15 minutes) publishes `FinancingRepaymentDueSoon` for unpaid installments of disbursed agreements that fall due within `financing.repayment-reminder-days` (default 3), and `FinancingRepaymentOverdue` once an installment is past due. `repayment_reminders(installment_id, kind)` is written in the same transaction as the outbox row, so each reminder goes out at most once even when sweeps overlap. Settled and undisbursed agreements get none.
 
-- **Outbox:** the business row and its outbox row are written in one local transaction. A poller publishes rows with publisher confirms and marks them sent only after the broker acks. Delivery is at-least-once.
-- **Idempotent consumers:** `processed_events(event_id PK)` is inserted in the same transaction as the business effect. A duplicate delivery hits the primary key and is skipped.
-- **Retry/DLQ:** bounded retries with exponential backoff, then reject-without-requeue to `<queue>.dlq` through the dead-letter exchange `ifp.events.dlx`. The documented replay procedure is shovel-based.
-- Exactly-once delivery across services is **not** claimed.
+**Notifications.** notification-service emails the seller about invoice submission, verification, rejection, financing and settlement, new offers, approval, upcoming repayments; both parties about disbursement, overdue repayments, cancellation and settlement; the financier about acceptance, declines and repayments. Every SMTP attempt is recorded in `delivery_attempts` (`SENT`, or `FAILED` with the exception type only). Failed attempts commit in their own transaction, so the history survives the rollback that triggers the retry, and an event that exhausts its retries ends in `notification.events.dlq` with its failures on record.
+
+| Queue | Bindings | Consumer |
+|---|---|---|
+| `financing.invoice-events` | `invoice.*` | financing-service feeds the `financeable_invoices` projection (version-checked) |
+| `invoice.financing-events` | `financing.disbursed`, `financing.settled` | invoice-service moves the invoice to `FINANCED` / `SETTLED` as actor `SYSTEM` |
+| `notification.events` | `user.registered`, `invoice.*`, `financing.*` | notification-service sends email through MailHog |
+| `audit.events` | `#` | audit-service records every event |
+
+Events carry IDs, amounts, dates and statuses, and never passwords or tokens. `UserRegistered` is the only event with an email address and display name: notification-service needs them for its recipient directory, and audit-service strips both before storing. Notification emails never contain amounts.
+
+Reliability:
+
+- **Outbox (`platform-messaging`):** the business row and its outbox row are written in one local transaction; `OutboxWriter` refuses to run without one. A relay polls pending rows with `FOR UPDATE SKIP LOCKED` in write order (`seq`), publishes them with publisher confirms, and marks them published only after the broker acks. A failed publish is retried with exponential backoff (2 s, 4 s, 8 s, … capped at 5 minutes). Delivery is at-least-once.
+- **Broker objects:** exchanges and queues are durable, and messages are published persistent with the event ID as AMQP `message-id`. Listener containers acknowledge a message only after the handler and its database transaction have committed (Spring AMQP `AUTO` acknowledgement, which uses broker-level manual acks), and reject it otherwise.
+- **Unroutable events** are not lost: `ifp.events` has the alternate exchange `ifp.events.unrouted`, whose queue parks them for inspection.
+- **Idempotent consumers:** `processed_events(consumer, event_id)` is inserted in the same transaction as the business effect. A duplicate delivery hits the primary key, rolls back and is acknowledged without effect. audit-service relies on its unique `event_id` instead.
+- **Retry and DLQ:** each listener tries a message 4 times (1 s, 2 s, 4 s backoff, capped at 10 s), then rejects it without requeue to `<queue>.dlq` through the dead-letter exchange `ifp.events.dlx`. Malformed envelopes, unknown schema versions and business-invalid events (for example a disbursement for an invoice that is not listed) skip the retries and go to the DLQ immediately.
+- **Inspection:** queue depths and message bodies are visible in the management UI (http://localhost:15672 → Queues → `<queue>.dlq` → Get messages, with "Ack mode: Nack message requeue true" so inspecting does not remove them). Bodies contain IDs, statuses and amounts but no credentials.
+- **Replay:** after fixing the cause, move messages from `<queue>.dlq` back to `ifp.events` with the management UI's "Move messages" action (needs the `rabbitmq_shovel` and `rabbitmq_shovel_management` plugins) or a dynamic shovel. Consumers are idempotent, so replaying an already-applied event is harmless.
+- **Queues exist once a consumer has started.** Each service declares its own queue on startup. Events published before a consumer's first start are not lost but parked in `ifp.events.unrouted`, and can be moved back to `ifp.events` the same way.
+- **Projection rebuild / reconciliation:** the financing read model can be re-fed from invoice-service's outbox. Stop financing-service, delete its `processed_events` rows for consumer `financing-service.invoice-projection`, set `published_at = NULL, next_attempt_at = NOW(6)` on the invoice-service `outbox_events` rows to replay, then start financing-service. The relay republishes them in order, and the projection's version check applies only snapshots newer than what it holds. Other consumers skip the replayed event IDs (their `processed_events` rows remain), so no emails or audit rows are duplicated.
+- **Ordering:** events from one producer are published in write order, but there is no ordering across producers or across retries. Consumers therefore compare versions (projection) or check the current status (invoice outcome; a settlement that overtakes its disbursement applies both steps).
+- Exactly-once delivery across services is **not** claimed. A crash between sending an email and committing can resend that email.
 
 ## 7. Security decisions
 
@@ -367,6 +387,8 @@ The script also checks the negative paths:
 - **Eventual consistency:** invoice status updates to `FINANCED` a moment after disbursement. The UI shows the financing-service view as the source of truth for money.
 - **Shared MySQL server:** separate databases and users enforce ownership, but one server is a shared failure domain. That is acceptable locally, and production would separate them.
 - **In-listener retries** block a consumer thread during backoff. That is simple and bounded, though delayed retry queues would scale better.
+- **Events start at Phase 5.** The dev seed invoices and anything created before Phase 5 have no outbox rows, so they never reach the financing projection, notifications or the audit trail. Users registered before Phase 5 (including a bootstrapped admin) are unknown to notification-service, and their notifications are recorded as `SKIPPED` with `RECIPIENT_UNKNOWN`.
+- **No outbox or `processed_events` retention yet.** Published rows stay in place. A scheduled purge of old published rows is a follow-up.
 - **Correlation IDs are replaced, not rejected.** A malformed `X-Correlation-Id` gets a fresh UUID instead of a 400. Tracing is best-effort metadata, the malformed value is never forwarded or logged, and this matches the behaviour every service already has through `platform-common`.
 - **The login form is not behind the gateway**, so gateway rate limits do not cover password guessing on `/login`. Mitigations today are BCrypt cost and the 12-character minimum. Login throttling or lockout in auth-service (or at a reverse proxy in front of it) is a follow-up.
 - **Unknown-`kid` refetch.** A token with an unseen key ID makes the gateway and services refetch the JWK set. That is what makes rotation seamless, but a flood of forged tokens could amplify load on `/oauth2/jwks`. Nimbus caches the set, and production would put the JWK endpoint behind a cache or CDN.
@@ -383,7 +405,7 @@ The script also checks the negative paths:
 | 2 Invoices ✅ | invoice-service domain, Flyway, state machine, REST, ETag/If-Match, dev-only seed data, **JWT validation and role/ownership authorization for invoice-service**, unit + Testcontainers ITs | 1 |
 | 3 Auth & gateway ✅ | auth-service (Authorization Server, users, registration, RSA key management, token contract above), gateway routes/token validation/CORS/rate limit/correlation IDs, negative authz tests, repeatable end-to-end script. Resource-server config for financing/notification/audit lands with those services (Phases 4–5) | 1, 2 |
 | 4 Financing ✅ | Read model, offers, agreements, disbursement idempotency, schedules, repayments, settlement, concurrency tests, gateway route | 3 |
-| 5 Events | Outbox in auth/invoice/financing, consumers, notification & audit services, retries/DLQ, duplicate-delivery tests | 2–4 |
+| 5 Events ✅ | Outbox in auth/invoice/financing, consumers, notification & audit services, retries/DLQ, duplicate-delivery tests | 2–4 |
 | 6 Frontend | Angular 19 seller/financier/admin workflows against real APIs | 3–5 |
 | 7 Containers & CI | Dockerfiles (multi-stage, non-root), full Compose, health ordering, GitHub Actions | 1–6 |
 | 8 Verification | End-to-end run, security pass, final docs | all |

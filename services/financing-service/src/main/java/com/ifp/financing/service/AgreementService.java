@@ -65,12 +65,14 @@ public class AgreementService {
     private final IdempotentExecutor idempotent;
     private final FinancingProperties properties;
     private final Clock clock;
+    private final FinancingEvents events;
 
     public AgreementService(FinancingAgreementRepository agreements, DisbursementRepository disbursements,
                             RepaymentInstallmentRepository installments, RepaymentRepository repayments,
                             RepaymentAllocationRepository allocations, StatusHistoryRepository historyRepository,
                             StatusHistoryRecorder history, IdempotentExecutor idempotent,
-                            FinancingProperties properties, Clock clock) {
+                            FinancingProperties properties, Clock clock, FinancingEvents events) {
+        this.events = events;
         this.agreements = agreements;
         this.disbursements = disbursements;
         this.installments = installments;
@@ -153,6 +155,7 @@ public class AgreementService {
         agreement.approve(now);
         agreements.saveAndFlush(agreement);
         history.record(StatusHistoryEntry.AGREEMENT, id, from, agreement.getStatus(), actor, null, now);
+        events.agreement(agreement, from, actor.userId());
         log.info("Agreement {} approved", id);
         return agreement;
     }
@@ -165,6 +168,7 @@ public class AgreementService {
         agreement.reject(reason, now);
         agreements.saveAndFlush(agreement);
         history.record(StatusHistoryEntry.AGREEMENT, id, from, agreement.getStatus(), actor, agreement.getStatusReason(), now);
+        events.agreement(agreement, from, actor.userId());
         log.info("Agreement {} rejected", id);
         return agreement;
     }
@@ -188,6 +192,7 @@ public class AgreementService {
         agreement.cancel(reason, now);
         agreements.saveAndFlush(agreement);
         history.record(StatusHistoryEntry.AGREEMENT, id, from, agreement.getStatus(), actor, agreement.getStatusReason(), now);
+        events.agreement(agreement, from, actor.userId());
         log.info("Agreement {} cancelled", id);
         return agreement;
     }
@@ -223,6 +228,7 @@ public class AgreementService {
         installments.saveAll(RepaymentPlan.schedule(agreement.getId(), today, agreement.getMaturityDate(),
                 agreement.getInstallmentCount(), agreement.getAdvanceAmount(), fee, UUID::randomUUID));
         history.record(StatusHistoryEntry.AGREEMENT, id, from, AgreementStatus.DISBURSED, actor, null, now);
+        events.agreement(agreement, from, actor.userId());
         installments.flush();
         log.info("Agreement {} disbursed (simulated), disbursement {}", id, disbursement.getId());
         return disbursement;
@@ -265,8 +271,10 @@ public class AgreementService {
             allocations.save(new RepaymentAllocation(repayment.getId(), allocation.installment().getId(),
                     allocation.principalPart(), allocation.feePart()));
         }
+        events.repaymentRecorded(agreement, repayment, actor.userId());
         if (agreement.getStatus() != from) {
             history.record(StatusHistoryEntry.AGREEMENT, id, from, agreement.getStatus(), actor, null, now);
+            events.agreement(agreement, from, actor.userId());
         }
         allocations.flush();
         log.info("Repayment {} recorded against agreement {}; status {}", repayment.getId(), id, agreement.getStatus());

@@ -1,0 +1,24 @@
+spring:
+  application:
+    name: messaging-test
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:test-schema.sql
+  rabbitmq:
+    publisher-confirm-type: correlated
+    listener:
+      simple:
+        default-requeue-rejected: false
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 100ms
+          multiplier: 2
+          max-interval: 500ms
+
+ifp:
+  messaging:
+    relay:
+      # Tests drive the relay explicitly through publishPending().
+      interval: 1h
