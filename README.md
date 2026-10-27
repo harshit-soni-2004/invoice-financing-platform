@@ -8,7 +8,7 @@ A portfolio-quality **simulation** of invoice financing: sellers submit invoices
 
 ## Stack
 
-Java 21 · Spring Boot 3.5 · Spring Cloud Gateway 2025.0 · Spring Authorization Server · MySQL 8.4 · Flyway · RabbitMQ 4.1 · Redis 7.4 · MailHog · Angular 19 · Docker Compose · Testcontainers · GitHub Actions
+Java 21 · Spring Boot 3.5 · Spring Cloud Gateway 2025.0 · Spring Authorization Server · MySQL 8.4 · Flyway · RabbitMQ 4.1 · Redis 7.4 · MailHog · Angular 21 · Docker Compose · Testcontainers · GitHub Actions
 
 ## Prerequisites
 
@@ -16,7 +16,7 @@ Java 21 · Spring Boot 3.5 · Spring Cloud Gateway 2025.0 · Spring Authorizatio
 |---|---|
 | JDK | 21 |
 | Docker Desktop | Engine 29+ with Compose v2 |
-| Node.js (frontend, Phase 6) | 22 LTS (Angular 19 does not support Node 24) |
+| Node.js (frontend only) | 22 LTS, project-local: `scripts/use-local-node.ps1` downloads it into the git-ignored `.tools/` (see [Frontend](#frontend)) |
 
 Maven does not need to be installed. Use the bundled wrapper (`mvnw` / `mvnw.cmd`).
 
@@ -84,6 +84,27 @@ The test registers a seller and a financier and has the admin activate the finan
 - every dead-letter queue and the unrouted queue are empty at the end.
 
 The development stack and its volumes are never touched, and the disposable containers are removed afterwards.
+
+## Frontend
+
+Angular 21 (LTS) in `frontend/`: standalone components, signals, zoneless change detection, strict TypeScript and plain SCSS with light and dark themes. The phase plan named Angular 19, but 19 is end-of-life and its last release has unpatched high-severity advisories, so the app uses the 21 LTS line instead.
+
+Node is project-local. Dot-sourcing the helper downloads Node 22.23.4 into the git-ignored `.tools/node`, verifies it against the official SHA-256 list, and puts it first on `PATH` for the current PowerShell session only. The system Node installation and npm configuration are not touched.
+
+```powershell
+. .\scripts\use-local-node.ps1
+cd frontend
+npm ci                 # install exactly what package-lock.json pins
+npm start              # dev server on http://localhost:4200
+npm run lint
+npm run test:ci        # Karma + Jasmine in headless Chrome
+npm run build          # production build in dist/frontend
+npm run e2e:ui         # Playwright UI checks at desktop and phone sizes (uses the installed Chrome)
+```
+
+`public/config.json` holds the gateway URL (`apiBaseUrl`), the auth-service issuer (`authIssuer`) and the OAuth2 client ID. It is read at startup rather than compiled in, so the same build can point at any environment. `$env:SCREENSHOTS = '1'; npm run e2e:ui` refreshes the images in `docs/screenshots/`.
+
+npm 10 (bundled with Node 22) installs reliably from the lockfile, but crashes with `Cannot read properties of null (reading 'edgesOut')` when it resolves this dependency tree from scratch. To add or upgrade a dependency, run `npx -y npm@11 install <package>`, then check the result with `npm ci`.
 
 ## Running the services locally
 

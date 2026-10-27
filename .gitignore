@@ -20,11 +20,15 @@ target/
 hs_err_pid*
 
 # ---- Node / Angular ----
+# Project-local Node runtime (see scripts/use-local-node.ps1)
+.tools/
 node_modules/
 dist/
 .angular/
 coverage/
 npm-debug.log*
+test-results/
+playwright-report/
 
 # ---- IDEs and OS ----
 .idea/

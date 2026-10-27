@@ -1,0 +1,91 @@
+// Design tokens as CSS custom properties. Text/background pairs meet WCAG AA (4.5:1) in both themes; the
+// theme.spec.ts test computes the ratios from these values in a real browser.
+
+@mixin light-theme {
+  color-scheme: light;
+  --color-bg: #f5f7fa;
+  --color-surface: #ffffff;
+  --color-surface-2: #eef1f5;
+  --color-border: #d4d9e1;
+  --color-border-strong: #8a94a3;
+  --color-text: #141b26;
+  --color-text-muted: #4a5464;
+  --color-primary: #1f4fd1;
+  --color-primary-hover: #1a43b3;
+  --color-on-primary: #ffffff;
+  --color-primary-soft: #e6edfd;
+  --color-focus: #1f4fd1;
+  --color-success: #136c35;
+  --color-success-soft: #e3f4e9;
+  --color-warning: #8f4a00;
+  --color-warning-soft: #fdf0dc;
+  --color-danger: #b42318;
+  --color-danger-soft: #fde8e6;
+  --color-info: #0b6378;
+  --color-info-soft: #e0f3f7;
+  --shadow-sm: 0 1px 2px rgb(16 24 40 / 6%), 0 1px 3px rgb(16 24 40 / 10%);
+  --shadow-md: 0 4px 12px rgb(16 24 40 / 10%);
+}
+
+@mixin dark-theme {
+  color-scheme: dark;
+  --color-bg: #0d1320;
+  --color-surface: #141c2c;
+  --color-surface-2: #1c2638;
+  --color-border: #2c3850;
+  --color-border-strong: #6b7890;
+  --color-text: #e6eaf2;
+  --color-text-muted: #a3adbf;
+  --color-primary: #7aa2ff;
+  --color-primary-hover: #9bb9ff;
+  --color-on-primary: #0d1320;
+  --color-primary-soft: #1c2a4d;
+  --color-focus: #9bb9ff;
+  --color-success: #5fd38d;
+  --color-success-soft: #14301f;
+  --color-warning: #f2b45a;
+  --color-warning-soft: #33250f;
+  --color-danger: #ff8a80;
+  --color-danger-soft: #3a1714;
+  --color-info: #5ccfe6;
+  --color-info-soft: #0f2d35;
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 40%);
+  --shadow-md: 0 6px 16px rgb(0 0 0 / 45%);
+}
+
+:root {
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', Consolas, monospace;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+  --text-3xl: 2.25rem;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --content-width: 72rem;
+  --header-height: 3.75rem;
+  --transition: 150ms ease;
+
+  @include light-theme;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    @include dark-theme;
+  }
+}
+
+:root[data-theme='dark'] {
+  @include dark-theme;
+}

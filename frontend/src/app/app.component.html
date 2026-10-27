@@ -1,0 +1,53 @@
+<a class="skip-link" href="#main" (click)="skipToMain($event)">Skip to main content</a>
+
+<header class="header">
+  <div class="header-inner">
+    <a class="brand" routerLink="/" aria-label="Invoice Financing, home">
+      <span class="brand-mark" aria-hidden="true">IF</span>
+      <span class="brand-name">Invoice Financing</span>
+    </a>
+
+    <button
+      type="button"
+      class="btn btn-ghost menu-toggle"
+      aria-controls="primary-nav"
+      [attr.aria-expanded]="menuOpen()"
+      (click)="toggleMenu()"
+    >
+      <span aria-hidden="true">{{ menuOpen() ? '✕' : '☰' }}</span>
+      <span class="visually-hidden">Menu</span>
+    </button>
+
+    <nav id="primary-nav" class="nav" [class.open]="menuOpen()" aria-label="Primary">
+      <ul>
+        @for (link of links(); track link.path) {
+          <li>
+            <a
+              [routerLink]="link.path"
+              routerLinkActive="active"
+              ariaCurrentWhenActive="page"
+              [routerLinkActiveOptions]="{ exact: link.exact ?? false }"
+              >{{ link.label }}</a
+            >
+          </li>
+        }
+      </ul>
+      <div class="nav-actions">
+        <button type="button" class="btn btn-ghost btn-sm" (click)="theme.cycle()" [attr.aria-label]="themeLabel() + '. Change theme'">
+          {{ themeLabel() }}
+        </button>
+      </div>
+    </nav>
+  </div>
+</header>
+
+<main id="main" tabindex="-1">
+  <router-outlet />
+</main>
+
+<footer class="footer">
+  <div class="footer-inner">
+    <span>© {{ year }} Invoice Financing demo</span>
+    <span class="muted">Simulated money movement. No real payments are made.</span>
+  </div>
+</footer>
