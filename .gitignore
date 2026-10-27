@@ -1,0 +1,40 @@
+# ---- Secrets and local configuration (never commit) ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+secrets/
+**/application-local.yml
+**/application-local.properties
+
+# ---- Java / Maven ----
+target/
+!.mvn/wrapper/maven-wrapper.properties
+*.class
+*.log
+hs_err_pid*
+
+# ---- Node / Angular ----
+node_modules/
+dist/
+.angular/
+coverage/
+npm-debug.log*
+
+# ---- IDEs and OS ----
+.idea/
+*.iml
+.vscode/
+!.vscode/extensions.json
+.cursor/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ---- Runtime data ----
+logs/
+data/

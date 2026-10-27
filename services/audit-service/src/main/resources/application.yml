@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: audit-service
+
+server:
+  port: ${SERVER_PORT:8084}
+  shutdown: graceful
+  error:
+    include-stacktrace: never
+    include-message: never
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+
+# JSON logs are enabled per environment with LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs (set in Docker Compose).
+logging:
+  level:
+    root: ${LOG_LEVEL_ROOT:INFO}
+    com.ifp: ${LOG_LEVEL_APP:INFO}
