@@ -95,3 +95,16 @@ logging:
   level:
     root: ${LOG_LEVEL_ROOT:INFO}
     com.ifp: ${LOG_LEVEL_APP:INFO}
+
+---
+# Local development profile: human-readable console logs instead of the default JSON.
+spring:
+  config:
+    activate:
+      on-profile: local
+logging:
+  structured:
+    format:
+      console: ""
+  pattern:
+    correlation: "[%X{correlationId:-}] "
