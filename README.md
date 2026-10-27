@@ -4,7 +4,7 @@ A portfolio-quality **simulation** of invoice financing: sellers submit invoices
 
 > No real banking, payment gateway or money movement is involved. All amounts are in INR and handled as `BigDecimal` / `DECIMAL(19,2)`.
 
-**Status:** Phase 3 is complete. auth-service issues RS256 tokens through Authorization Code + PKCE, the gateway validates them, routes `/api/**`, applies CORS and Redis rate limits, and invoice-service still validates every token itself. See [docs/architecture.md](docs/architecture.md) for the design and roadmap.
+**Status:** Phase 4 is complete. auth-service issues RS256 tokens through Authorization Code + PKCE, the gateway validates them, routes `/api/**`, applies CORS and Redis rate limits, and each service validates every token again itself. financing-service implements offers from competing financiers, agreements with an explicit state machine, idempotent simulated disbursement, repayment schedules, partial and full repayments, overdue tracking and settlement. Its invoice read model is fed by invoice events from Phase 5 onwards. See [docs/architecture.md](docs/architecture.md) for the design, the financial rules and the roadmap.
 
 ## Stack
 
@@ -79,12 +79,12 @@ Service logs are written to `target/e2e/` and scanned for tokens, private keys a
 
 This writes an RSA-3072 PKCS#8 key to `infra/keys/jwt-signing-key.pem` (git-ignored, readable only by you). It never overwrites an existing key. Never commit it and never use it outside your machine; production keys belong in a secret store. auth-service refuses to start without a key unless the `dev` profile is active, which falls back to an in-memory key that changes on every restart (all tokens become invalid).
 
-### 2. Start auth-service, invoice-service and the gateway
+### 2. Start auth-service, invoice-service, financing-service and the gateway
 
 Build once, then start each service in its own terminal from the repository root. Define `Get-DotEnv` in each terminal; it reads a value from `.env` without printing it.
 
 ```powershell
-.\mvnw.cmd -B package -DskipTests -pl "services/auth-service,services/invoice-service,services/gateway" -am
+.\mvnw.cmd -B package -DskipTests -pl "services/auth-service,services/invoice-service,services/financing-service,services/gateway" -am
 function Get-DotEnv($name) { (Get-Content .env | Select-String "^$name=").Line.Split('=', 2)[1] }
 
 # Terminal 1: auth-service on :9000
@@ -97,7 +97,11 @@ $env:DB_PASSWORD = Get-DotEnv INVOICE_DB_PASSWORD
 $env:SPRING_PROFILES_ACTIVE = 'dev'
 java -jar services/invoice-service/target/invoice-service-0.1.0-SNAPSHOT.jar
 
-# Terminal 3: gateway on :8080
+# Terminal 3: financing-service on :8082
+$env:DB_PASSWORD = Get-DotEnv FINANCING_DB_PASSWORD
+java -jar services/financing-service/target/financing-service-0.1.0-SNAPSHOT.jar
+
+# Terminal 4: gateway on :8080
 $env:REDIS_PASSWORD = Get-DotEnv REDIS_PASSWORD
 java -jar services/gateway/target/gateway-0.1.0-SNAPSHOT.jar
 ```
@@ -105,13 +109,14 @@ java -jar services/gateway/target/gateway-0.1.0-SNAPSHOT.jar
 | Variable | Default | Used by | Purpose |
 |---|---|---|---|
 | `AUTH_ISSUER_URI` | `http://localhost:9000` | all | Issuer that tokens carry and services require |
-| `AUTH_JWK_SET_URI` | `http://localhost:9000/oauth2/jwks` | gateway, invoice | Where signing keys are fetched |
+| `AUTH_JWK_SET_URI` | `http://localhost:9000/oauth2/jwks` | gateway, invoice, financing | Where signing keys are fetched |
 | `AUTH_AUDIENCE` | `ifp-api` | all | Required `aud` value |
 | `AUTH_JWT_PRIVATE_KEY_LOCATION` | (none) | auth | PKCS#8 PEM signing key |
 | `AUTH_SPA_REDIRECT_URIS` / `AUTH_SPA_ALLOWED_ORIGINS` | `http://localhost:4200/...` | auth | Registered SPA callback and origins |
 | `ADMIN_BOOTSTRAP_EMAIL` / `ADMIN_BOOTSTRAP_PASSWORD` | (none) | auth | Optional first ADMIN, created only if none exists |
-| `DB_HOST` / `DB_PORT` / `DB_PASSWORD` | `localhost` / `3307` / (none) | auth, invoice | Each service's own database user |
-| `AUTH_SERVICE_URI` / `INVOICE_SERVICE_URI` | `http://localhost:9000` / `:8081` | gateway | Route targets |
+| `DB_HOST` / `DB_PORT` / `DB_PASSWORD` | `localhost` / `3307` / (none) | auth, invoice, financing | Each service's own database user |
+| `AUTH_SERVICE_URI` / `INVOICE_SERVICE_URI` / `FINANCING_SERVICE_URI` | `http://localhost:9000` / `:8081` / `:8082` | gateway | Route targets |
+| `FINANCING_MAX_ADVANCE_RATIO` / `FINANCING_MAX_ANNUAL_RATE` / `FINANCING_MAX_OFFER_VALIDITY` / `FINANCING_MIN_DAYS_TO_MATURITY` / `FINANCING_MAX_INSTALLMENTS` | `0.98` / `0.3600` / `14d` / `7` / `12` | financing | Bounds on offer terms (financiers always set the actual terms) |
 | `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` | `localhost` / `6379` / (none) | gateway | Rate-limit store |
 | `GATEWAY_CORS_ALLOWED_ORIGINS` | `http://localhost:4200` | gateway | Explicit origins (`*` is rejected at startup) |
 | `GATEWAY_TRUSTED_PROXY_HOPS` | `0` | gateway | Trusted `X-Forwarded-For` hops |

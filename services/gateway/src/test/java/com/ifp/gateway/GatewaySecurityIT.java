@@ -116,6 +116,23 @@ class GatewaySecurityIT extends AbstractGatewayIT {
     }
 
     @Test
+    void financingRoutesRequireTokenAndForwardIdempotencyKey() {
+        String path = "/api/financing/agreements/" + UUID.randomUUID() + "/disburse";
+
+        client().post().uri(path).header("Idempotency-Key", "key-12345678").exchange().expectStatus().isUnauthorized();
+        assertThat(DownstreamStub.receivedFor(path)).isEmpty();
+
+        client().post().uri(path)
+                .header(AUTHORIZATION, bearer(TestTokens.financier(UUID.randomUUID())))
+                .header("Idempotency-Key", "key-12345678")
+                .exchange().expectStatus().isOk();
+
+        List<DownstreamStub.Received> received = DownstreamStub.receivedFor(path);
+        assertThat(received).hasSize(1);
+        assertThat(received.get(0).header("Idempotency-Key")).isEqualTo("key-12345678");
+    }
+
+    @Test
     void registrationIsPublicAndRoutedToAuthService() {
         int before = DownstreamStub.receivedFor("/api/auth/register").size();
 

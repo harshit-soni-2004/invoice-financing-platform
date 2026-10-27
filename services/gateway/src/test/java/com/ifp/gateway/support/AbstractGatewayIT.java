@@ -32,6 +32,7 @@ public abstract class AbstractGatewayIT {
         registry.add("spring.security.oauth2.resourceserver.jwt.audiences", () -> TestTokens.AUDIENCE);
         registry.add("AUTH_SERVICE_URI", DownstreamStub::uri);
         registry.add("INVOICE_SERVICE_URI", DownstreamStub::uri);
+        registry.add("FINANCING_SERVICE_URI", DownstreamStub::uri);
     }
 
     protected WebTestClient client() {

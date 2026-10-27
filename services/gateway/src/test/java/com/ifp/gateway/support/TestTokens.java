@@ -70,6 +70,10 @@ public final class TestTokens {
         return token().subject(id.toString()).roles("ADMIN").sign();
     }
 
+    public static String financier(UUID id) {
+        return token().subject(id.toString()).roles("FINANCIER").sign();
+    }
+
     public static final class Builder {
         private String subject = UUID.randomUUID().toString();
         private List<String> roles = List.of("SELLER");

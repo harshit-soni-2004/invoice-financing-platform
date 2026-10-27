@@ -84,7 +84,7 @@ Each service has its own MySQL database and its own database user. The init scri
 |---|---|---|
 | `auth_db` | auth-service | **Implemented (Phase 3):** `users` (email unique, case-insensitive; BCrypt hash; role; status; version) and Spring Authorization Server's `oauth2_authorization` (authorization codes and issued tokens, so codes stay single-use across restarts). The only client, `ifp-spa`, is registered in code and needs no consent screen, so there are no `oauth2_registered_client` or consent tables. **Phase 5:** `outbox_events` |
 | `invoice_db` | invoice-service | **Implemented (Phase 2):** `invoices` (unique `seller_id + invoice_number`, case-insensitive; `amount DECIMAL(19,2)`; CHECK constraints for positive amount, `currency = 'INR'`, `due_date > issue_date` and valid status; `version`) and `invoice_status_history` (FK to `invoices`). **Phase 5:** `outbox_events`, `processed_events` |
-| `financing_db` | financing-service | `financeable_invoices` (read model), `financing_offers`, `financing_agreements` (unique `offer_id`; generated `active_invoice_id` unique so only one live agreement per invoice), `disbursements` (unique `agreement_id`), `repayment_installments`, `repayments` (unique idempotency key), `outbox_events`, `processed_events` |
+| `financing_db` | financing-service | **Implemented (Phase 4):** `financeable_invoices` (read model ordered by invoice-service's row version), `financing_offers` (generated `open_financier_id` + unique `(invoice_id, open_financier_id)`: one open offer per financier per invoice), `financing_agreements` (unique `offer_id`; generated `live_invoice_id` unique so only one live agreement per invoice; CHECKs on repaid amounts and `total_repayable = advance + fee`), `disbursements` (unique `agreement_id` and `reference`), `repayment_installments` (unique `agreement_id + sequence_no`), `repayments` (CHECK `amount = principal + fee`), `repayment_allocations`, `idempotency_records` (unique `operation + actor_id + key`, SHA-256 request hash), `financing_status_history`. **Phase 5:** `outbox_events`, `processed_events` |
 | `notification_db` | notification-service | `recipients` (read model from `UserRegistered`), `notifications` (unique `event_id + recipient`), `processed_events` |
 | `audit_db` | audit-service | `audit_events` (unique `event_id`, JSON metadata). Runtime user has **SELECT/INSERT only**, so the trail is append-only at the database level |
 
@@ -129,7 +129,13 @@ Buyer confirmation and document verification are two explicit steps. Uploading a
 
 ### Offer (financing-service)
 
-`OFFERED → ACCEPTED | REJECTED (seller) | WITHDRAWN (financier) | EXPIRED (expiry passed) | CLOSED (another offer on the same invoice was accepted)`
+`OFFERED → ACCEPTED | REJECTED (seller) | WITHDRAWN (financier) | EXPIRED (expiry passed) | CLOSED (another offer on the same invoice was accepted, or the invoice left FINANCING_AVAILABLE)`
+
+**Multi-financier policy.** Several financiers may compete for one invoice. Each may hold at most one open offer per invoice (enforced by a unique constraint on a generated column). When the seller accepts one offer, that offer becomes `ACCEPTED`, an agreement is created in `PENDING_APPROVAL`, and every other open offer on the invoice becomes `CLOSED`, all in one transaction. Accepting and creating offers lock the invoice's read-model row, so they serialize per invoice, and the unique live-agreement constraint is the final guard against financing an invoice twice. If the agreement is later rejected or cancelled, the invoice is open for new offers again; offers already closed stay closed.
+
+**Eligibility.** An invoice can receive offers only when its projected status is `FINANCING_AVAILABLE`, its due date is at least `financing.min-days-to-maturity` (default 7) days after today in the business zone, and it has no live agreement. If the projection later shows the invoice leaving `FINANCING_AVAILABLE` for any reason other than its own financing (`FINANCED` / `SETTLED`), open offers are closed and `PENDING_APPROVAL` / `APPROVED` agreements are cancelled. Disbursed agreements are never touched.
+
+**Projection updates.** `InvoiceProjectionService.apply(InvoiceSnapshot)` is the only writer of `financeable_invoices`. Snapshots carry invoice-service's row version; a snapshot with a version less than or equal to the stored one is ignored, so duplicate and out-of-order deliveries cannot roll the projection back. A snapshot that changes an invoice's seller is rejected. Phase 5 feeds it from invoice events. Phase 4 has no REST endpoint for it.
 
 ### Financing agreement (financing-service)
 
@@ -150,12 +156,32 @@ stateDiagram-v2
 
 ### Financial rules
 
-- `advance ≤ invoice amount × financing.max-advance-ratio` (configurable, default 0.98).
-- Discount fee = `advance × annual rate × days(disbursement → due date) / 365` + flat processing fee, rounded `HALF_EVEN` to 2 decimals. Total repayable = advance + fees.
-  Example: ₹4,80,000 advance at 12% p.a. for 60 days gives a fee of ₹9,468.49 and ₹4,89,468.49 repayable.
-- An expired offer cannot be accepted (the check happens at accept time, plus a scheduled expiry sweep).
-- Disbursement is guarded three ways: the agreement must be `APPROVED`, the `disbursements.agreement_id` unique constraint, and an `Idempotency-Key` header. A replayed request returns the original result.
-- A repayment must be `0 < amount ≤ outstanding`, and is rejected once the agreement is `SETTLED`. Optimistic locking on the agreement serializes concurrent repayments.
+All terms are chosen explicitly by the financier; the platform has no built-in or default rates. Configurable limits (`financing.*`) only bound what a financier may offer.
+
+- **Advance:** `0 < advance ≤ invoice amount × financing.max-advance-ratio` (default 0.98), the cap rounded down to paise. The full advance is disbursed; fees are repaid, never deducted.
+- **Rate:** an annual fraction with at most 4 decimals, `0 < rate ≤ financing.max-annual-rate` (default 0.36).
+- **Processing fee:** flat, `0 ≤ fee < advance`.
+- **Installments:** `1 … financing.max-installments` (default 12), with at least one day to maturity per installment.
+- **Offer expiry:** `expiresAt` must be in the future, within `financing.max-offer-validity` (default 14 days), and before the start of the invoice due date. An expired offer is refused at accept or reject time (`OFFER_EXPIRED`), and a scheduled sweep (`financing.offer-expiry-sweep-interval`, default 60s) marks it `EXPIRED`.
+- **Fee:** `advance × rate × days(disbursement date → due date) / 365`, rounded `HALF_EVEN` to paise, plus the processing fee. It is fixed at disbursement, because it depends on the days remaining. Total repayable = advance + fee.
+  Example: ₹4,80,000 advance at 12% p.a. for 60 days gives a fee of ₹9,468.49; with a ₹1,000 processing fee, ₹4,90,468.49 is repayable.
+- **Schedule:** principal and fee are each split into `n` equal parts rounded **down** to paise, and the last installment takes the remainder, so the parts always add up exactly. Installment `k` is due `ceil(days × k / n)` days after disbursement, so the last one is always the due date.
+- **Allocation:** a repayment pays the oldest installment first; within an installment the fee is paid before the principal. The split is stored in `repayment_allocations`.
+- **Repayment limits:** `0 < amount ≤ outstanding` with at most 2 decimals. More than the outstanding amount is rejected (`REPAYMENT_EXCEEDS_OUTSTANDING`, 422), and any repayment after settlement is rejected (`AGREEMENT_SETTLED`, 409). The repayment that brings the outstanding amount to zero settles the agreement in the same transaction. Repayments are recorded by the seller and are simulated: no money moves.
+- **Overdue:** derived per installment (`due date < today` in the business zone and something unpaid). An agreement reports `overdue`, `overdueAmount` and `nextDueDate`. Phase 4 adds no penalty interest.
+- **Disbursement exactly once:** the agreement must be `APPROVED`; the agreement row is locked (`SELECT … FOR UPDATE`); `disbursements.agreement_id` is unique; and an `Idempotency-Key` header is required.
+
+### Idempotency (disbursement and repayment)
+
+`Idempotency-Key` is required (8–100 characters of `A–Z a–z 0–9 _ -`) and scoped to the caller and operation. The business change and the `idempotency_records` row commit in one transaction.
+
+- **First use:** `201 Created`, `Idempotent-Replayed: false`.
+- **Same key and same request:** `200 OK` with the original resource and `Idempotent-Replayed: true`. Nothing new is written.
+- **Same key and different request** (another agreement, or another amount): `409 IDEMPOTENCY_KEY_REUSED`.
+- **Concurrent identical requests:** they serialize on the agreement row lock. The loser fails and re-reads in a new transaction, finds the winner's record, and returns it as a replay.
+- **Failed operations** roll back completely, including the idempotency record, so the same key can be retried.
+
+Repayments also lock the installment rows. Under MySQL's REPEATABLE READ, a plain read after waiting for the agreement lock could otherwise see a snapshot from before a concurrent repayment committed.
 
 ## 5. First API endpoints (via gateway `http://localhost:8080`)
 
@@ -169,17 +195,19 @@ stateDiagram-v2
 | `POST /api/invoices/{id}/submit` · `/cancel` · `/list-for-financing` | SELLER (own) | Lifecycle |
 | `POST /api/invoices/{id}/buyer-confirmation` · `/verify` · `/reject` | ADMIN | Verification desk |
 | `GET /api/invoices/{id}/history` | owner / ADMIN | Status timeline |
-| `GET /api/financing/opportunities` | FINANCIER | Invoices open for offers |
-| `POST /api/financing/offers` · `POST /api/financing/offers/{id}/withdraw` | FINANCIER | Create / withdraw offer |
-| `GET /api/financing/offers` · `GET /api/financing/offers/{id}` | SELLER / FINANCIER (scoped) | Offers |
-| `POST /api/financing/offers/{id}/accept` · `/reject` | SELLER (invoice owner) | Decide on offer |
+| `GET /api/financing/opportunities?page=&size=&sort=` · `GET /api/financing/opportunities/{invoiceId}` | FINANCIER / ADMIN | Eligible invoices, with `maxAdvanceAmount` |
+| `POST /api/financing/offers` · `POST /api/financing/offers/{id}/withdraw` | FINANCIER | Create / withdraw own offer |
+| `GET /api/financing/offers?invoiceId=&status=` · `GET /api/financing/offers/{id}` · `/history` | SELLER (own invoices) / FINANCIER (own offers) / ADMIN | Offers |
+| `POST /api/financing/offers/{id}/accept` · `/reject` | SELLER (invoice owner) | Decide on offer (accept returns the new agreement) |
+| `GET /api/financing/agreements?status=` · `GET /api/financing/agreements/{id}` · `/history` | parties / ADMIN | Agreements, including outstanding, overdue and settlement status |
 | `POST /api/financing/agreements/{id}/approve` · `/reject` · `/disburse` | FINANCIER (owner) | Approval & simulated disbursement (`Idempotency-Key` required) |
-| `GET /api/financing/agreements/{id}/schedule` · `/repayments` | parties | Schedule & history |
+| `POST /api/financing/agreements/{id}/cancel` | SELLER (owner, while `PENDING_APPROVAL`) / FINANCIER (owner, while `APPROVED`) | Cancel before disbursement |
+| `GET /api/financing/agreements/{id}/disbursement` · `/schedule` · `/repayments` | parties / ADMIN | Disbursement, schedule with derived installment status, repayment history |
 | `POST /api/financing/agreements/{id}/repayments` | SELLER (owner) | Record simulated repayment (`Idempotency-Key` required) |
 | `GET /api/notifications` · `POST /api/notifications/{id}/read` | any (own) | Notifications |
 | `GET /api/audit-events?entityId=&eventType=&from=&to=` | ADMIN | Read-only audit queries |
 
-The auth and user endpoints (Phase 3) and the invoice endpoints (Phase 2) are **implemented** and routed by the gateway. Other rows are planned.
+The auth and user endpoints (Phase 3), the invoice endpoints (Phase 2) and the financing endpoints (Phase 4) are **implemented** and routed by the gateway. Notification and audit rows are planned. Financing lists sort by whitelisted fields only (opportunities: `dueDate`, `amount`, `invoiceNumber`; offers: `createdAt`, `expiresAt`, `advanceAmount`; agreements: `createdAt`, `maturityDate`, `advanceAmount`).
 
 Errors use RFC 9457 `application/problem+json` with a machine-readable `code`:
 
@@ -189,7 +217,7 @@ Errors use RFC 9457 `application/problem+json` with a machine-readable `code`:
 | 401 | Missing or invalid token |
 | 403 | Wrong role |
 | 404 | Not found, or owned by someone else (existence is not revealed) |
-| 409 | Invalid status transition, duplicate invoice number, not editable, or concurrent modification |
+| 409 | Invalid status transition, duplicate invoice number, not editable, concurrent modification, duplicate open offer, invoice already financed, offer expired, idempotency key reused, agreement settled |
 | 412 | `If-Match` does not match the current version |
 | 422 | Business rule violated, for example `DUE_DATE_TOO_SOON` |
 | 428 | `If-Match` missing on `PUT` |
@@ -354,7 +382,7 @@ The script also checks the negative paths:
 | 1 Foundation ✅ | Repo config, Compose infra (MySQL, RabbitMQ, Redis, MailHog), DB isolation, service skeletons, correlation IDs | — |
 | 2 Invoices ✅ | invoice-service domain, Flyway, state machine, REST, ETag/If-Match, dev-only seed data, **JWT validation and role/ownership authorization for invoice-service**, unit + Testcontainers ITs | 1 |
 | 3 Auth & gateway ✅ | auth-service (Authorization Server, users, registration, RSA key management, token contract above), gateway routes/token validation/CORS/rate limit/correlation IDs, negative authz tests, repeatable end-to-end script. Resource-server config for financing/notification/audit lands with those services (Phases 4–5) | 1, 2 |
-| 4 Financing | Read model, offers, agreements, disbursement idempotency, schedules, repayments, settlement, concurrency tests | 3 |
+| 4 Financing ✅ | Read model, offers, agreements, disbursement idempotency, schedules, repayments, settlement, concurrency tests, gateway route | 3 |
 | 5 Events | Outbox in auth/invoice/financing, consumers, notification & audit services, retries/DLQ, duplicate-delivery tests | 2–4 |
 | 6 Frontend | Angular 19 seller/financier/admin workflows against real APIs | 3–5 |
 | 7 Containers & CI | Dockerfiles (multi-stage, non-root), full Compose, health ordering, GitHub Actions | 1–6 |

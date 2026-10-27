@@ -59,6 +59,15 @@ spring:
                   args:
                     rate-limiter: "#{@apiRateLimiter}"
                     key-resolver: "#{@clientKeyResolver}"
+            - id: financing
+              uri: ${FINANCING_SERVICE_URI:http://localhost:8082}
+              predicates:
+                - Path=/api/financing/**
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    rate-limiter: "#{@apiRateLimiter}"
+                    key-resolver: "#{@clientKeyResolver}"
             # OAuth2/OIDC endpoints (login, /oauth2/*, discovery, JWKS) are served by auth-service directly at the
             # issuer URL and are deliberately not routed here.
 
@@ -66,8 +75,8 @@ gateway:
   cors:
     allowed-origins: ${GATEWAY_CORS_ALLOWED_ORIGINS:http://localhost:4200}
     allowed-methods: GET,POST,PUT,OPTIONS
-    allowed-headers: Authorization,Content-Type,If-Match,X-Correlation-Id
-    exposed-headers: ETag,Location,X-Correlation-Id,X-RateLimit-Remaining,Retry-After
+    allowed-headers: Authorization,Content-Type,If-Match,Idempotency-Key,X-Correlation-Id
+    exposed-headers: ETag,Location,Idempotent-Replayed,X-Correlation-Id,X-RateLimit-Remaining,Retry-After
     max-age: 1h
   rate-limit:
     redis-timeout: ${RATE_LIMIT_REDIS_TIMEOUT:750ms}
