@@ -83,12 +83,21 @@ Each service has its own MySQL database and its own database user. The init scri
 | Database | Owner | Core tables |
 |---|---|---|
 | `auth_db` | auth-service | `users` (email unique, BCrypt hash, role, status, version), Spring Authorization Server tables (`oauth2_registered_client`, `oauth2_authorization`, `oauth2_authorization_consent`), `outbox_events` |
-| `invoice_db` | invoice-service | `invoices` (unique `seller_id + invoice_number`, `amount DECIMAL(19,2)`, `currency CHAR(3)`, status, `version`), `invoice_status_history`, `outbox_events`, `processed_events` |
+| `invoice_db` | invoice-service | **Implemented (Phase 2):** `invoices` (unique `seller_id + invoice_number`, case-insensitive; `amount DECIMAL(19,2)`; CHECK constraints for positive amount, `currency = 'INR'`, `due_date > issue_date` and valid status; `version`) and `invoice_status_history` (FK to `invoices`). **Phase 5:** `outbox_events`, `processed_events` |
 | `financing_db` | financing-service | `financeable_invoices` (read model), `financing_offers`, `financing_agreements` (unique `offer_id`; generated `active_invoice_id` unique so only one live agreement per invoice), `disbursements` (unique `agreement_id`), `repayment_installments`, `repayments` (unique idempotency key), `outbox_events`, `processed_events` |
 | `notification_db` | notification-service | `recipients` (read model from `UserRegistered`), `notifications` (unique `event_id + recipient`), `processed_events` |
 | `audit_db` | audit-service | `audit_events` (unique `event_id`, JSON metadata). Runtime user has **SELECT/INSERT only**, so the trail is append-only at the database level |
 
-Common conventions: UUID primary keys stored as `BINARY(16)`. `created_at`/`updated_at` are `TIMESTAMP(6)` in UTC (the MySQL server runs with `default-time-zone=+00:00`). Money is `DECIMAL(19,2)` mapped to `BigDecimal`. Mutable aggregates have a `version` column for optimistic locking. Flyway owns every schema, and Hibernate runs with `ddl-auto=validate`.
+Common conventions:
+
+- UUID primary keys are stored as `BINARY(16)`.
+- Timestamps are `DATETIME(6)` holding UTC values. The MySQL server runs with `default-time-zone=+00:00` and Hibernate uses `jdbc.time_zone=UTC`. `DATETIME` is used instead of `TIMESTAMP` to avoid session time-zone conversion and the 2038 limit.
+- The application `Clock` ticks in whole microseconds. MySQL rounds sub-microsecond digits rather than truncating them, so finer timestamps would make the stored value differ from the one returned to the client.
+- Calendar-date rules ("today") use the configurable business zone `Asia/Kolkata`.
+- Money is `DECIMAL(19,2)` mapped to `BigDecimal`.
+- Mutable aggregates have a `version` column for optimistic locking.
+- Flyway owns every schema, and Hibernate runs with `ddl-auto=validate`.
+- Development seed data lives in a separate Flyway location (`db/seed-dev`) that only the `dev` profile enables.
 
 ## 4. State machines
 
@@ -170,7 +179,24 @@ stateDiagram-v2
 | `GET /api/notifications` · `POST /api/notifications/{id}/read` | any (own) | Notifications |
 | `GET /api/audit-events?entityId=&eventType=&from=&to=` | ADMIN | Read-only audit queries |
 
-Errors use RFC 9457 `application/problem+json`. Lists are paginated. Ownership always comes from the JWT `sub`, never from a request field.
+The invoice endpoints are **implemented** (Phase 2). Other rows are planned.
+
+Errors use RFC 9457 `application/problem+json` with a machine-readable `code`:
+
+| Status | Meaning |
+|---|---|
+| 400 | Malformed or invalid input; `errors[]` lists the failing fields |
+| 401 | Missing or invalid token |
+| 403 | Wrong role |
+| 404 | Not found, or owned by someone else (existence is not revealed) |
+| 409 | Invalid status transition, duplicate invoice number, not editable, or concurrent modification |
+| 412 | `If-Match` does not match the current version |
+| 422 | Business rule violated, for example `DUE_DATE_TOO_SOON` |
+| 428 | `If-Match` missing on `PUT` |
+
+Lists are paginated (`size` at most 100) and sorted only by whitelisted fields. Ownership always comes from the JWT `sub`, never from a request field. A seller-supplied `sellerId` filter is ignored.
+
+**Concurrency contract.** Responses carry a strong `ETag` equal to the row version (for example `"3"`). `PUT` requires `If-Match`. Status-change endpoints accept an optional `If-Match`, and concurrent writers are also caught by `@Version` optimistic locking. Each status change flushes the versioned `UPDATE` before inserting its history row. The invoice row's exclusive lock is therefore taken first, and a concurrent writer fails on the version check instead of deadlocking on the history foreign key.
 
 ## 6. Event contracts
 
@@ -210,6 +236,8 @@ Reliability (Phase 5):
 |---|---|
 | Login | Angular is a **public OAuth2 client** using Authorization Code + PKCE against auth-service. The login form is served by auth-service, so the SPA never handles passwords. |
 | Tokens | RS256 JWT access tokens, 15 min (configurable), with `iss` and `aud=ifp-api` validated by the gateway **and** by every service (defense in depth). The SPA keeps tokens **in memory**, not localStorage. |
+| Token contract | `sub` = user UUID (tokens with any other subject are rejected with 401). `roles` = array of `SELLER`/`FINANCIER`/`ADMIN`, mapped to `ROLE_*` authorities; unknown roles grant nothing. `aud` must contain `ifp-api`. Only RS256 is accepted. auth-service must issue exactly this shape in Phase 3. |
+| Implementation status | **invoice-service validates tokens as of Phase 2.** It checks signature (via the JWK set), issuer, audience, expiry and algorithm using Spring Boot's resource-server properties, plus `@PreAuthorize` role checks and service-layer ownership checks. Integration tests sign real tokens with a test RSA key served from a local JWK endpoint. **auth-service (token issuance, users, key management) and gateway token validation remain Phase 3.** Until then invoice-service cannot be called manually without a token from a test issuer. |
 | Issuer in Docker | Issuer is fixed to the browser-visible URL (`http://localhost:9000`). Services fetch keys from the internal `jwk-set-uri` (`http://auth-service:9000/oauth2/jwks`) and validate the issuer string explicitly. |
 | Keys | Dev RSA keys are generated by a script into a git-ignored folder. Private keys are never committed. |
 | CSRF | Disabled for stateless bearer-token APIs (no auth cookies). Enabled on the auth-service login form, which is session-based. |
@@ -226,14 +254,16 @@ Reliability (Phase 5):
 - **Shared MySQL server:** separate databases and users enforce ownership, but one server is a shared failure domain. That is acceptable locally, and production would separate them.
 - **In-listener retries** block a consumer thread during backoff. That is simple and bounded, though delayed retry queues would scale better.
 - **MailHog** has been unmaintained since 2020. It is used because it was specified, and Mailpit is a drop-in alternative.
+- **Flyway 11.7.2**, the version Spring Boot 3.5.16 manages, logs "upgrade recommended" for MySQL 8.4 because it was not tested against that version. Migrations are verified against MySQL 8.4 by the integration tests. The Spring Boot-managed version is kept rather than overridden.
+- **Mockito agent JVM notice:** tests load Mockito with `-javaagent`, which is the setup Mockito documents now that runtime self-attach is deprecated (JEP 451). This removes the self-attach warnings. Each test JVM still prints "Sharing is only supported for boot loader classes because bootstrap classpath has been appended". That notice comes from class-data sharing (CDS) and is harmless. It is not hidden with `-Xshare:off`, which would only slow test startup.
 
 ## 9. Roadmap
 
 | Phase | Scope | Depends on |
 |---|---|---|
 | 1 Foundation ✅ | Repo config, Compose infra (MySQL, RabbitMQ, Redis, MailHog), DB isolation, service skeletons, correlation IDs | — |
-| 2 Invoices | invoice-service domain, Flyway, state machine, REST, Testcontainers ITs, seed data | 1 |
-| 3 Auth & gateway | Authorization Server, users, RSA keys, resource-server config in all services, gateway routes/CORS/rate limit, negative authz tests | 1, 2 |
+| 2 Invoices ✅ | invoice-service domain, Flyway, state machine, REST, ETag/If-Match, dev-only seed data, **JWT validation and role/ownership authorization for invoice-service**, unit + Testcontainers ITs | 1 |
+| 3 Auth & gateway | auth-service (Authorization Server, users, registration, RSA key management, token contract above), gateway routes/token validation/CORS/rate limit, resource-server config in the remaining services, negative authz tests | 1, 2 |
 | 4 Financing | Read model, offers, agreements, disbursement idempotency, schedules, repayments, settlement, concurrency tests | 3 |
 | 5 Events | Outbox in auth/invoice/financing, consumers, notification & audit services, retries/DLQ, duplicate-delivery tests | 2–4 |
 | 6 Frontend | Angular 19 seller/financier/admin workflows against real APIs | 3–5 |

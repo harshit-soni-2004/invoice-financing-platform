@@ -1,0 +1,5 @@
+# Development profile. Never enable in shared or production-like environments.
+spring:
+  flyway:
+    # Adds clearly marked demo data on top of the production migrations.
+    locations: classpath:db/migration,classpath:db/seed-dev

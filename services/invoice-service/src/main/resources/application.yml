@@ -2,12 +2,48 @@ spring:
   application:
     name: invoice-service
 
+  datasource:
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3307}/${DB_NAME:invoice_db}?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true
+    username: ${DB_USERNAME:invoice_svc}
+    password: ${DB_PASSWORD:}
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      # Flyway owns the schema; Hibernate only checks that the entities match it.
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    locations: classpath:db/migration
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # The issuer is the browser-visible URL of auth-service; keys are fetched from the internal JWK endpoint.
+          issuer-uri: ${AUTH_ISSUER_URI:http://localhost:9000}
+          jwk-set-uri: ${AUTH_JWK_SET_URI:http://localhost:9000/oauth2/jwks}
+          audiences: ${AUTH_AUDIENCE:ifp-api}
+          jws-algorithms: RS256
+          authorities-claim-name: roles
+          authority-prefix: ROLE_
+
 server:
   port: ${SERVER_PORT:8081}
   shutdown: graceful
   error:
     include-stacktrace: never
     include-message: never
+
+invoice:
+  business-zone: Asia/Kolkata
+  max-amount: 100000000.00
+  max-tenor-days: 180
+  min-days-to-maturity-at-submission: 7
 
 management:
   endpoints:

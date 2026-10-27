@@ -4,7 +4,7 @@ A portfolio-quality **simulation** of invoice financing: sellers submit invoices
 
 > No real banking, payment gateway or money movement is involved. All amounts are in INR and handled as `BigDecimal` / `DECIMAL(19,2)`.
 
-**Status:** Phase 1 (foundation) is complete. See [docs/architecture.md](docs/architecture.md) for the design and roadmap.
+**Status:** Phase 2 is complete. invoice-service has its invoice lifecycle, Flyway schema, REST API and JWT validation. auth-service and the gateway are Phase 3. See [docs/architecture.md](docs/architecture.md) for the design and roadmap.
 
 ## Stack
 
@@ -49,7 +49,31 @@ Stop with `docker compose down`. Data survives in named volumes. `docker compose
 ./mvnw verify        # Windows: .\mvnw.cmd verify
 ```
 
-Unit tests (`*Test`, `*Tests`) run in the `test` phase, and integration tests (`*IT`, Testcontainers) run in `verify`.
+Unit tests (`*Test`, `*Tests`) run in the `test` phase, and integration tests (`*IT`, Testcontainers) run in `verify`. Integration tests need Docker running. They start their own disposable MySQL 8.4 container and never touch the Compose database.
+
+## Running invoice-service locally
+
+With the Compose infrastructure up:
+
+```powershell
+# PowerShell; uses the invoice_svc password from your .env without printing it
+$env:DB_PASSWORD = (Get-Content .env | Select-String '^INVOICE_DB_PASSWORD=').Line.Split('=', 2)[1]
+$env:SPRING_PROFILES_ACTIVE = 'dev'   # optional: loads DEMO- seed invoices (development only)
+.\mvnw.cmd -pl services/invoice-service -am package -DskipTests
+java -jar services/invoice-service/target/invoice-service-0.1.0-SNAPSHOT.jar
+```
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `DB_HOST` / `DB_PORT` / `DB_NAME` | `localhost` / `3307` / `invoice_db` | MySQL location |
+| `DB_USERNAME` / `DB_PASSWORD` | `invoice_svc` / (none) | Service database user |
+| `AUTH_ISSUER_URI` | `http://localhost:9000` | Expected `iss` claim |
+| `AUTH_JWK_SET_URI` | `http://localhost:9000/oauth2/jwks` | Where signing keys are fetched |
+| `AUTH_AUDIENCE` | `ifp-api` | Required `aud` value |
+
+`GET http://localhost:8081/actuator/health` is public. Every `/api/invoices` endpoint needs a bearer token whose `sub` is a user UUID and whose `roles` claim includes `SELLER` or `ADMIN`. Real tokens come from auth-service in Phase 3. Until then the API is exercised through the integration tests.
+
+The `dev` profile seed is demo data only: fictional sellers and buyers, with invoice numbers prefixed `DEMO-`. Production migrations live in `db/migration`, and the seed lives in `db/seed-dev`.
 
 ## Logging
 
