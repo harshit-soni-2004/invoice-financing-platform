@@ -2,6 +2,45 @@ spring:
   application:
     name: auth-service
 
+  datasource:
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3307}/${DB_NAME:auth_db}?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true
+    username: ${DB_USERNAME:auth_svc}
+    password: ${DB_PASSWORD:}
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      # Flyway owns the schema; Hibernate only checks that the entities match it.
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    locations: classpath:db/migration
+
+auth:
+  # Browser-visible URL of this server. Every resource server expects exactly this value in `iss`.
+  issuer: ${AUTH_ISSUER_URI:http://localhost:9000}
+  audience: ${AUTH_AUDIENCE:ifp-api}
+  access-token-ttl: ${AUTH_ACCESS_TOKEN_TTL:15m}
+  spa:
+    client-id: ifp-spa
+    redirect-uris: ${AUTH_SPA_REDIRECT_URIS:http://localhost:4200/auth/callback}
+    post-logout-redirect-uris: ${AUTH_SPA_POST_LOGOUT_REDIRECT_URIS:http://localhost:4200/}
+    allowed-origins: ${AUTH_SPA_ALLOWED_ORIGINS:http://localhost:4200}
+  jwt:
+    # PKCS#8 PEM, e.g. file:./infra/keys/jwt-signing-key.pem (git-ignored; see scripts/generate-dev-jwt-key.sh).
+    private-key-location: ${AUTH_JWT_PRIVATE_KEY_LOCATION:}
+    key-id: ${AUTH_JWT_KEY_ID:}
+    allow-ephemeral-key: false
+  # Optional first administrator, created at startup only if none exists. Leave unset unless provisioning.
+  bootstrap-admin:
+    email: ${ADMIN_BOOTSTRAP_EMAIL:}
+    password: ${ADMIN_BOOTSTRAP_PASSWORD:}
+    display-name: ${ADMIN_BOOTSTRAP_DISPLAY_NAME:}
+
 server:
   port: ${SERVER_PORT:9000}
   shutdown: graceful

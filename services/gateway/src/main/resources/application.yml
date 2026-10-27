@@ -4,11 +4,95 @@ spring:
   main:
     web-application-type: reactive
 
-# Routes, token validation, CORS and rate limiting are added in Phase 3.
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Same contract as invoice-service: browser-visible issuer, keys fetched from auth-service's JWK endpoint.
+          issuer-uri: ${AUTH_ISSUER_URI:http://localhost:9000}
+          jwk-set-uri: ${AUTH_JWK_SET_URI:http://localhost:9000/oauth2/jwks}
+          audiences: ${AUTH_AUDIENCE:ifp-api}
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      # Fail fast so an unreachable Redis triggers the rate-limit failure mode instead of hanging requests.
+      timeout: ${REDIS_TIMEOUT:500ms}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:500ms}
+
+  cloud:
+    gateway:
+      server:
+        webflux:
+          httpclient:
+            connect-timeout: ${GATEWAY_CONNECT_TIMEOUT_MS:2000}
+            response-timeout: ${GATEWAY_RESPONSE_TIMEOUT:10s}
+          routes:
+            # Public: account creation. Throttled per client address and fails closed if Redis is down.
+            - id: auth-register
+              uri: ${AUTH_SERVICE_URI:http://localhost:9000}
+              predicates:
+                - Path=/api/auth/register
+                - Method=POST
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    rate-limiter: "#{@publicRateLimiter}"
+                    key-resolver: "#{@clientKeyResolver}"
+            - id: auth-users
+              uri: ${AUTH_SERVICE_URI:http://localhost:9000}
+              predicates:
+                - Path=/api/users/**,/api/admin/users,/api/admin/users/**
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    rate-limiter: "#{@apiRateLimiter}"
+                    key-resolver: "#{@clientKeyResolver}"
+            - id: invoices
+              uri: ${INVOICE_SERVICE_URI:http://localhost:8081}
+              predicates:
+                - Path=/api/invoices,/api/invoices/**
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    rate-limiter: "#{@apiRateLimiter}"
+                    key-resolver: "#{@clientKeyResolver}"
+            # OAuth2/OIDC endpoints (login, /oauth2/*, discovery, JWKS) are served by auth-service directly at the
+            # issuer URL and are deliberately not routed here.
+
+gateway:
+  cors:
+    allowed-origins: ${GATEWAY_CORS_ALLOWED_ORIGINS:http://localhost:4200}
+    allowed-methods: GET,POST,PUT,OPTIONS
+    allowed-headers: Authorization,Content-Type,If-Match,X-Correlation-Id
+    exposed-headers: ETag,Location,X-Correlation-Id,X-RateLimit-Remaining,Retry-After
+    max-age: 1h
+  rate-limit:
+    redis-timeout: ${RATE_LIMIT_REDIS_TIMEOUT:750ms}
+    public-api:
+      # Defaults: bursts of 5, then 5 requests per minute per client address.
+      replenish-rate: ${RATE_LIMIT_PUBLIC_REPLENISH_RATE:1}
+      burst-capacity: ${RATE_LIMIT_PUBLIC_BURST_CAPACITY:60}
+      requested-tokens: ${RATE_LIMIT_PUBLIC_REQUESTED_TOKENS:12}
+      failure-mode: ${RATE_LIMIT_PUBLIC_FAILURE_MODE:FAIL_CLOSED}
+    api:
+      # Defaults: bursts of 40, then 20 requests per second per user.
+      replenish-rate: ${RATE_LIMIT_API_REPLENISH_RATE:20}
+      burst-capacity: ${RATE_LIMIT_API_BURST_CAPACITY:40}
+      requested-tokens: ${RATE_LIMIT_API_REQUESTED_TOKENS:1}
+      failure-mode: ${RATE_LIMIT_API_FAILURE_MODE:FAIL_OPEN}
+  client-ip:
+    trusted-proxy-hops: ${GATEWAY_TRUSTED_PROXY_HOPS:0}
 
 server:
   port: ${SERVER_PORT:8080}
   shutdown: graceful
+  error:
+    include-stacktrace: never
+    include-message: never
+    include-binding-errors: never
 
 management:
   endpoints:
@@ -20,6 +104,11 @@ management:
       probes:
         enabled: true
       show-details: never
+  # Health stays UP while Redis is down: the rate-limit failure modes already define that behaviour, and a failing
+  # liveness probe would turn a Redis outage into a full gateway outage.
+  health:
+    redis:
+      enabled: false
 
 # JSON logs are enabled per environment with LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs (set in Docker Compose).
 logging:

@@ -1,0 +1,5 @@
+# Development profile. Never enable in shared or production-like environments.
+auth:
+  jwt:
+    # Falls back to an in-memory key when AUTH_JWT_PRIVATE_KEY_LOCATION is unset; tokens die on restart.
+    allow-ephemeral-key: true
