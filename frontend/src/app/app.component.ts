@@ -4,7 +4,11 @@ import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } fro
 import { filter } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
+import { AuthService, homeFor } from './core/auth/auth.service';
+import { ROLE_LABELS } from './core/auth/role-labels';
 import { ThemeService } from './core/theme/theme.service';
+
+const AREA_LABELS = { SELLER: 'Seller workspace', FINANCIER: 'Financier workspace', ADMIN: 'Admin console' } as const;
 
 interface NavLink {
   path: string;
@@ -22,10 +26,20 @@ interface NavLink {
 export class AppComponent {
   private readonly document = inject(DOCUMENT);
   protected readonly theme = inject(ThemeService);
+  protected readonly auth = inject(AuthService);
   protected readonly menuOpen = signal(false);
   protected readonly year = new Date().getFullYear();
+  protected readonly roleLabels = ROLE_LABELS;
 
-  protected readonly links = computed<NavLink[]>(() => [{ path: '/', label: 'Home', exact: true }]);
+  /** Links follow the signed-in role for convenience only; the APIs enforce access. */
+  protected readonly links = computed<NavLink[]>(() => {
+    const links: NavLink[] = [{ path: '/', label: 'Home', exact: true }];
+    const user = this.auth.user();
+    if (user) {
+      links.push({ path: homeFor(user.role), label: AREA_LABELS[user.role] }, { path: '/account', label: 'Account' });
+    }
+    return links;
+  });
 
   protected readonly themeLabel = computed(() => {
     switch (this.theme.preference()) {

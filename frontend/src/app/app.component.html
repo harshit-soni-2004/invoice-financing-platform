@@ -36,6 +36,15 @@
         <button type="button" class="btn btn-ghost btn-sm" (click)="theme.cycle()" [attr.aria-label]="themeLabel() + '. Change theme'">
           {{ themeLabel() }}
         </button>
+        @if (auth.user(); as user) {
+          <span class="who">
+            <span class="who-name">{{ user.name }}</span>
+            <span class="badge badge-primary">{{ roleLabels[user.role] }}</span>
+          </span>
+          <button type="button" class="btn btn-secondary btn-sm" (click)="auth.signOut()">Sign out</button>
+        } @else {
+          <a class="btn btn-primary btn-sm" routerLink="/login">Sign in</a>
+        }
       </div>
     </nav>
   </div>

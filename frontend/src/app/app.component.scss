@@ -130,6 +130,22 @@ main {
   gap: var(--space-2);
 }
 
+.who {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.who-name {
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .footer {
   border-top: 1px solid var(--color-border);
   background: var(--color-surface);

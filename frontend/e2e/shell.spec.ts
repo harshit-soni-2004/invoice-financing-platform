@@ -14,6 +14,8 @@ test.describe('app shell', () => {
 
   test('the first Tab reaches the skip link, which moves focus to the main content', async ({ page }) => {
     await page.goto('/');
+    // The app renders only after config.json has loaded, which can be after the load event.
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
     await page.keyboard.press('Tab');
     const skip = page.getByRole('link', { name: 'Skip to main content' });
     await expect(skip).toBeFocused();
