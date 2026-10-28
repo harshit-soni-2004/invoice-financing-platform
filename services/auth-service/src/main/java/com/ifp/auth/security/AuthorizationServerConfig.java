@@ -157,7 +157,10 @@ public class AuthorizationServerConfig {
         }
     }
 
-    /** The SPA calls the token, JWKS, discovery and UserInfo endpoints cross-origin. */
+    /**
+     * The SPA calls the token, JWKS, discovery and UserInfo endpoints cross-origin. {@code /api/**} is reached through
+     * the gateway, which owns CORS there; answering CORS here as well would send the browser duplicate headers.
+     */
     @Bean
     CorsConfigurationSource corsConfigurationSource(AuthServerProperties properties) {
         CorsConfiguration cors = new CorsConfiguration();
@@ -167,7 +170,9 @@ public class AuthorizationServerConfig {
         cors.setAllowCredentials(false);
         cors.setMaxAge(3600L);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", cors);
+        for (String path : List.of("/oauth2/**", "/.well-known/**", "/userinfo")) {
+            source.registerCorsConfiguration(path, cors);
+        }
         return source;
     }
 }

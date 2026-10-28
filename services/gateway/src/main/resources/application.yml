@@ -29,6 +29,10 @@ spring:
           httpclient:
             connect-timeout: ${GATEWAY_CONNECT_TIMEOUT_MS:2000}
             response-timeout: ${GATEWAY_RESPONSE_TIMEOUT:10s}
+          # The gateway answers CORS for /api/** before routing. If a service adds its own CORS headers too, browsers
+          # reject the duplicate values, so only the gateway's (the first) are kept.
+          default-filters:
+            - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials Access-Control-Allow-Methods Access-Control-Allow-Headers Access-Control-Expose-Headers Access-Control-Max-Age, RETAIN_FIRST
           routes:
             # Public: account creation. Throttled per client address and fails closed if Redis is down.
             - id: auth-register

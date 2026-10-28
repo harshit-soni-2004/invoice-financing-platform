@@ -20,6 +20,7 @@ import java.util.stream.Collectors;
  * <ul>
  *   <li>{@code .../fail} answers 500 with a downstream problem body</li>
  *   <li>{@code .../slow} answers after 3 seconds</li>
+ *   <li>{@code .../cors} also sends its own CORS headers, as a service with CORS enabled would</li>
  *   <li>everything else answers 200 with a small JSON body, echoing {@code X-Correlation-Id}</li>
  * </ul>
  */
@@ -69,6 +70,10 @@ public final class DownstreamStub {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
+        }
+        if (path.endsWith("/cors")) {
+            exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "http://downstream.example");
+            exchange.getResponseHeaders().add("Access-Control-Expose-Headers", "X-Downstream");
         }
         String correlationId = requestHeaders.getFirst("X-Correlation-Id");
         if (correlationId != null) {

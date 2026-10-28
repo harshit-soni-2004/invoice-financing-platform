@@ -50,6 +50,27 @@ class AuthorizationServerMetadataIT extends AbstractIntegrationTest {
         assertThat(evil.headers().firstValue("Access-Control-Allow-Origin")).isEmpty();
     }
 
+    @Test
+    void discoveryIsReadableCrossOriginBySpa() {
+        HttpResponse<String> response = getWithOrigin("/.well-known/openid-configuration");
+
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.headers().allValues("Access-Control-Allow-Origin")).containsExactly(SPA_ORIGIN);
+    }
+
+    @Test
+    void apiEndpointsLeaveCorsToTheGateway() {
+        HttpResponse<String> response = getWithOrigin("/api/users/me");
+
+        assertThat(response.statusCode()).isEqualTo(401);
+        assertThat(response.headers().firstValue("Access-Control-Allow-Origin")).isEmpty();
+    }
+
+    private HttpResponse<String> getWithOrigin(String path) {
+        OAuthFlowClient client = browser();
+        return client.send(HttpRequest.newBuilder(client.base().resolve(path)).GET().header("Origin", SPA_ORIGIN).build());
+    }
+
     private HttpResponse<String> preflight(String origin) {
         OAuthFlowClient client = browser();
         return client.send(HttpRequest.newBuilder(client.base().resolve("/oauth2/token"))

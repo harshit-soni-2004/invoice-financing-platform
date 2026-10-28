@@ -63,6 +63,20 @@ class CorsAndCorrelationIT extends AbstractGatewayIT {
     }
 
     @Test
+    void corsHeadersAddedByAServiceDoNotDuplicateTheGatewayOnes() {
+        HttpHeaders headers = client().get().uri(uniqueInvoicePath() + "/cors")
+                .header(HttpHeaders.ORIGIN, SPA)
+                .header(AUTHORIZATION, bearer(TestTokens.seller(UUID.randomUUID())))
+                .exchange()
+                .expectStatus().isOk()
+                .returnResult(String.class).getResponseHeaders();
+
+        assertThat(headers.get(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN)).containsExactly(SPA);
+        assertThat(headers.get(HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS)).hasSize(1)
+                .allSatisfy(h -> assertThat(h).contains("ETag").doesNotContain("X-Downstream"));
+    }
+
+    @Test
     void validCorrelationIdIsPropagatedDownstreamAndReturnedOnce() {
         String path = uniqueInvoicePath();
         String correlationId = "trace-" + UUID.randomUUID();
