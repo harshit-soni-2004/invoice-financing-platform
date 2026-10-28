@@ -1,6 +1,6 @@
 import { Routes } from '@angular/router';
 
-import { authGuard, roleGuard } from './core/auth/auth.guards';
+import { authGuard, guestGuard, roleGuard } from './core/auth/auth.guards';
 
 const workspace = () => import('./features/workspace/workspace.component').then((m) => m.WorkspaceComponent);
 
@@ -15,6 +15,12 @@ export const routes: Routes = [
     path: 'login',
     title: 'Sign in · Invoice Financing',
     loadComponent: () => import('./features/auth/login.component').then((m) => m.LoginComponent),
+  },
+  {
+    path: 'register',
+    title: 'Create an account · Invoice Financing',
+    canActivate: [guestGuard],
+    loadComponent: () => import('./features/auth/register.component').then((m) => m.RegisterComponent),
   },
   {
     path: 'auth/callback',

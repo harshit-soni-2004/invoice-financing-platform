@@ -4,7 +4,7 @@ A portfolio-quality **simulation** of invoice financing: sellers submit invoices
 
 > No real banking, payment gateway or money movement is involved. All amounts are in INR and handled as `BigDecimal` / `DECIMAL(19,2)`.
 
-**Status:** Phase 5 is complete, and Phase 6 (the Angular app) is in progress: users can sign in, and the role workflows come next. auth-service issues RS256 tokens through Authorization Code + PKCE, the gateway validates them, routes `/api/**`, applies CORS and Redis rate limits, and each service validates every token again itself. financing-service implements offers from competing financiers, agreements with an explicit state machine, idempotent simulated disbursement, repayment schedules, partial and full repayments, overdue tracking and settlement. Services exchange events over RabbitMQ through a transactional outbox, with idempotent consumers, bounded retries and dead-letter queues. Listed invoices reach financing-service's read model, disbursement and settlement update the invoice, notification-service emails the parties through MailHog, and audit-service keeps an append-only trail of every event. See [docs/architecture.md](docs/architecture.md) for the design, the financial rules and the roadmap.
+**Status:** Phase 5 is complete, and Phase 6 (the Angular app) is in progress: users can register and sign in, and the role workflows come next. auth-service issues RS256 tokens through Authorization Code + PKCE, the gateway validates them, routes `/api/**`, applies CORS and Redis rate limits, and each service validates every token again itself. financing-service implements offers from competing financiers, agreements with an explicit state machine, idempotent simulated disbursement, repayment schedules, partial and full repayments, overdue tracking and settlement. Services exchange events over RabbitMQ through a transactional outbox, with idempotent consumers, bounded retries and dead-letter queues. Listed invoices reach financing-service's read model, disbursement and settlement update the invoice, notification-service emails the parties through MailHog, and audit-service keeps an append-only trail of every event. See [docs/architecture.md](docs/architecture.md) for the design, the financial rules and the roadmap.
 
 ## Stack
 
@@ -106,14 +106,19 @@ npm run e2e:ui         # Playwright UI checks at desktop and phone sizes (uses t
 
 **Sign-in.** "Sign in", or any page that needs an account (`/account`, `/seller`, `/financier`, `/admin`), sends the browser to auth-service's login page with Authorization Code + PKCE (see [Login flow](#4-login-flow)). The access token stays in memory, so reloading the page goes back through auth-service. Its session cookie skips the password, so the user only sees a brief redirect. The session ends with the 15-minute access token, after which the app asks the user to sign in again. "Sign out" also ends the auth-service session. The role pages are placeholders for the workflows that come next.
 
-`npm run e2e:ui` stands in for auth-service and the gateway inside the browser, so it needs no backend. To check sign-in against the real services, start auth-service and the gateway as described in [Running the services locally](#running-the-services-locally), then run the opt-in check. It registers a seller and a financier with random passwords. The app must be served on `localhost`, because auth-service only accepts the registered `http://localhost:4200/auth/callback`:
+**Registration.** `/register` creates a seller or financier account through the gateway's `POST /api/auth/register`. Administrators are never offered. The form checks the same rules as auth-service before sending: a password of 12+ characters, at most 72 UTF-8 bytes, and not the email address. Duplicate emails, server validation errors, rate limiting (`429`, using `Retry-After` when present), network failures and outages each get their own message. Registration does not sign the user in. A seller is pointed to "Sign in", and a financier is told that the account waits for an administrator's approval and that sign-in is refused until then.
+
+`npm run e2e:ui` stands in for auth-service and the gateway inside the browser, so it needs no backend. To check sign-in and registration against the real services, start auth-service and the gateway as described in [Running the services locally](#running-the-services-locally), then run the opt-in checks. They register sellers and financiers with random passwords. The app must be served on `localhost`, because auth-service only accepts the registered `http://localhost:4200/auth/callback`:
 
 ```powershell
 npx ng serve --host localhost              # in a separate terminal
 $env:IFP_STACK = '1'; $env:UI_BASE_URL = 'http://localhost:4200'
 # $env:IFP_GATEWAY_URL = 'http://localhost:18080'   # only if the gateway is not on :8080
 npx playwright test e2e/auth.live.spec.ts
+npx playwright test e2e/register.live.spec.ts
 ```
+
+The gateway allows 5 registrations per burst per client address, refilling one every 12 seconds. The two files together register 7 accounts, so run them separately, about a minute apart. The registration check runs at desktop size only for this reason.
 
 npm 10 (bundled with Node 22) installs reliably from the lockfile, but crashes with `Cannot read properties of null (reading 'edgesOut')` when it resolves this dependency tree from scratch. To add or upgrade a dependency, run `npx -y npm@11 install <package>`, then check the result with `npm ci`.
 

@@ -2,7 +2,7 @@ import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRouteSnapshot, Router, RouterStateSnapshot, UrlTree, provideRouter } from '@angular/router';
 
-import { authGuard, roleGuard } from './auth.guards';
+import { authGuard, guestGuard, roleGuard } from './auth.guards';
 import { AuthService } from './auth.service';
 import { SessionUser } from './id-token';
 
@@ -33,6 +33,12 @@ describe('auth guards', () => {
     user.set({ id: 'u', name: 'Asha', role: 'FINANCIER' });
     expect(run(authGuard)).toBeTrue();
     expect(run(roleGuard('FINANCIER', 'ADMIN'))).toBeTrue();
+  });
+
+  it('keeps visitor-only pages for signed-out users', () => {
+    expect(run(guestGuard)).toBeTrue();
+    user.set({ id: 'u', name: 'Asha', role: 'FINANCIER' });
+    expect(serialize(run(guestGuard))).toBe('/financier');
   });
 
   it('shows the no-access page for another role', () => {

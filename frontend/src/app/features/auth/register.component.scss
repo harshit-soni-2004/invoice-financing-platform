@@ -1,0 +1,98 @@
+.narrow {
+  max-width: 36rem;
+}
+
+h1 {
+  margin: 0;
+  outline: none;
+}
+
+header p {
+  margin: var(--space-1) 0 0;
+}
+
+.alert {
+  outline: none;
+
+  a {
+    color: inherit;
+    font-weight: 650;
+  }
+}
+
+.roles {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+
+  legend {
+    margin-bottom: var(--space-2);
+    padding: 0;
+    font-weight: 600;
+    font-size: var(--text-sm);
+  }
+}
+
+.role-option {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+
+  &:has(input:checked) {
+    border-color: var(--color-primary);
+    background: var(--color-primary-soft);
+  }
+
+  input {
+    margin-top: 0.2rem;
+    accent-color: var(--color-primary);
+  }
+
+  > span {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .hint {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+}
+
+.error {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-danger);
+}
+
+.field .hint {
+  margin: 0;
+}
+
+.actions {
+  justify-content: space-between;
+}
+
+.submit {
+  min-width: 10rem;
+}
+
+@media (max-width: 30rem) {
+  .actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+}
+
+.outcome p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}

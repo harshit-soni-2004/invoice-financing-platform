@@ -43,6 +43,7 @@
           </span>
           <button type="button" class="btn btn-secondary btn-sm" (click)="auth.signOut()">Sign out</button>
         } @else {
+          <a class="btn btn-secondary btn-sm" routerLink="/register">Create account</a>
           <a class="btn btn-primary btn-sm" routerLink="/login">Sign in</a>
         }
       </div>

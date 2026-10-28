@@ -46,6 +46,7 @@ describe('AppComponent', () => {
     const el: HTMLElement = fixture.nativeElement;
 
     expect(el.querySelector('a[href="/login"]')?.textContent?.trim()).toBe('Sign in');
+    expect(el.querySelector('a[href="/register"]')?.textContent?.trim()).toBe('Create account');
     expect(el.querySelector('a[href="/account"]')).toBeNull();
   });
 
@@ -60,6 +61,7 @@ describe('AppComponent', () => {
     expect(el.querySelector('a[href="/financier"]')?.textContent?.trim()).toBe('Financier workspace');
     expect(el.querySelector('a[href="/account"]')).not.toBeNull();
     expect(el.querySelector('a[href="/login"]')).toBeNull();
+    expect(el.querySelector('a[href="/register"]')).toBeNull();
 
     const signOutButton = Array.from(el.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Sign out');
     signOutButton?.click();

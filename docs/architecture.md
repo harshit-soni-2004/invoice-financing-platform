@@ -411,6 +411,6 @@ The script also checks the negative paths:
 | 3 Auth & gateway ✅ | auth-service (Authorization Server, users, registration, RSA key management, token contract above), gateway routes/token validation/CORS/rate limit/correlation IDs, negative authz tests, repeatable end-to-end script. Resource-server config for financing/notification/audit lands with those services (Phases 4–5) | 1, 2 |
 | 4 Financing ✅ | Read model, offers, agreements, disbursement idempotency, schedules, repayments, settlement, concurrency tests, gateway route | 3 |
 | 5 Events ✅ | Outbox in auth/invoice/financing, consumers, notification & audit services, retries/DLQ, duplicate-delivery tests | 2–4 |
-| 6 Frontend (in progress) | Angular 21 seller/financier/admin workflows against real APIs (Angular 19 was planned; it is end-of-life with unpatched advisories). Done: app shell, themes, Authorization Code + PKCE sign-in, role guards and API token handling. Next: registration, then each role's workflows | 3–5 |
+| 6 Frontend (in progress) | Angular 21 seller/financier/admin workflows against real APIs (Angular 19 was planned; it is end-of-life with unpatched advisories). Done: app shell, themes, Authorization Code + PKCE sign-in, role guards and API token handling, seller/financier registration. Next: each role's workflows, starting with the seller's invoices | 3–5 |
 | 7 Containers & CI | Dockerfiles (multi-stage, non-root), full Compose, health ordering, GitHub Actions | 1–6 |
 | 8 Verification | End-to-end run, security pass, final docs | all |
