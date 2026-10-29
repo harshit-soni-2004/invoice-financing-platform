@@ -415,9 +415,8 @@ The script also checks the negative paths:
 
 ### Known gaps
 
-- **Financier rejection:** auth-service now provides `POST /api/admin/users/{id}/reject`, but the admin console does not call it yet, so financiers can only be approved from the UI.
-- **Notification read state:** notification-service now stores `read_at` and provides mark-as-read, mark-all-read and unread-count endpoints, but the app does not call them yet.
-- **Header "new" count:** the notification count in the app header is derived from a per-device `localStorage` timestamp of the newest notification the user has seen, not from server state. It does not sync across browsers or devices.
+- **Decided financier applications leave the queue on reload.** The approvals page lists only `PENDING_APPROVAL` accounts, and auth-service does not return the rejection reason, so the console cannot show past rejections or their reasons. They are in the audit log.
+- **The header unread count is not pushed.** It is fetched on sign-in, after marking, when the notifications page loads and at most every 30 seconds on navigation, so a notification that arrives while the user stays on one page appears on the next navigation.
 
 ### Known gaps (backend)
 

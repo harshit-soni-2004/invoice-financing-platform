@@ -18,7 +18,7 @@ A portfolio-quality simulation of invoice financing: sellers submit invoices, ad
 ## Queue
 
 1. **Backend gaps** (Agent 2, branch `feat/backend-gaps`): financier rejection, notification read state, delayed retries and the `processed_at` index in invoice, notification and audit services.
-2. **Frontend follow-up:** admin reject button for financiers, real unread notification count, penalty columns in the financier repayment schedule.
+2. **Frontend follow-up** (branch `feat/frontend-follow-up`, awaiting review): admin reject button for financiers, real unread notification count and mark-as-read, penalty breakdown in the financier repayment schedule.
 3. **Live Playwright against the container stack**, with `IFP_AUTH_URL` set.
 4. Observability.
 5. Ledger.
@@ -38,4 +38,3 @@ A portfolio-quality simulation of invoice financing: sellers submit invoices, ad
 - MySQL DDL is not transactional, so a failed Flyway migration can leave partial changes.
 - The seller page finds an invoice's agreement only among the seller's 1,000 most recent agreements.
 - Repayment idempotency keys are kept in memory only.
-- The financier UI does not show the penalty breakdown yet.
