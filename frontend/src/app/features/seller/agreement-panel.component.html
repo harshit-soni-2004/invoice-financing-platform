@@ -1,0 +1,290 @@
+@let s = state();
+@if (s.kind !== 'none' || invoiceStatus() !== 'FINANCING_AVAILABLE') {
+  <section class="card stack" aria-labelledby="agreement-heading" [attr.aria-busy]="s.kind === 'loading' || submitting()">
+    <div class="section-head">
+      <h2 id="agreement-heading">Financing agreement</h2>
+      <div class="cluster">
+        @if (view(); as v) {
+          <span [class]="badgeClass(statusInfo[v.agreement.status].tone)">{{ statusInfo[v.agreement.status].label }}</span>
+        }
+        <button type="button" class="btn btn-secondary btn-sm" (click)="reload()" [disabled]="submitting()">
+          Refresh agreement
+        </button>
+      </div>
+    </div>
+
+    @if (notice(); as notice) {
+      @if (notice.tone === 'success') {
+        <div #noticeBox class="alert alert-success notice" role="status" tabindex="-1">{{ notice.message }}</div>
+      } @else {
+        <div #noticeBox [class]="'alert alert-' + notice.tone + ' notice'" role="alert" tabindex="-1">{{ notice.message }}</div>
+      }
+    }
+
+    @if (s.kind === 'loading') {
+      <p class="muted" role="status">Loading the agreement…</p>
+    } @else if (s.kind === 'error') {
+      <div class="alert alert-danger" role="alert">The agreement could not be loaded. {{ s.message }}</div>
+      <div><button type="button" class="btn btn-secondary" (click)="reload()">Try again</button></div>
+    } @else if (s.kind === 'none') {
+      <p class="muted">
+        No financing agreement for this invoice was found among your recent agreements. Refresh in a moment, or contact
+        support if it does not appear.
+      </p>
+    } @else {
+      @let a = s.view.agreement;
+      <p class="muted">{{ statusInfo[a.status].next }}</p>
+      @if (a.statusReason) {
+        <p><strong>Reason:</strong> {{ a.statusReason }}</p>
+      }
+      @if (a.overdue) {
+        <div class="alert alert-warning" role="note">
+          {{ formatAmount(a.overdueAmount ?? 0, a.currency) }} is overdue. Penalty interest accrues on overdue installments
+          until they are paid.
+        </div>
+      }
+
+      <dl class="figures">
+        <div>
+          <dt>Advance</dt>
+          <dd>{{ formatAmount(a.advanceAmount, a.currency) }}</dd>
+        </div>
+        <div>
+          <dt>Annual rate</dt>
+          <dd>{{ formatRate(a.annualRate) }}</dd>
+        </div>
+        <div>
+          <dt>Processing fee</dt>
+          <dd>{{ formatAmount(a.processingFee, a.currency) }}</dd>
+        </div>
+        <div>
+          <dt>Installments</dt>
+          <dd>{{ a.installmentCount }}</dd>
+        </div>
+        <div>
+          <dt>Financing fee</dt>
+          <dd>{{ a.feeAmount === null ? 'Fixed at payout' : formatAmount(a.feeAmount, a.currency) }}</dd>
+        </div>
+        <div>
+          <dt>Total repayable</dt>
+          <dd>{{ a.totalRepayable === null ? 'Fixed at payout' : formatAmount(a.totalRepayable, a.currency) }}</dd>
+        </div>
+        <div>
+          <dt>Repaid so far</dt>
+          <dd>{{ formatAmount(repaidTotal(), a.currency) }}</dd>
+        </div>
+        <div>
+          <dt>Outstanding</dt>
+          <dd>{{ formatAmount(a.outstanding, a.currency) }}</dd>
+        </div>
+        <div>
+          <dt>Penalty accrued</dt>
+          <dd>{{ formatAmount(a.penaltyAccrued, a.currency) }}</dd>
+        </div>
+        <div>
+          <dt>Penalty outstanding</dt>
+          <dd>{{ formatAmount(a.penaltyOutstanding, a.currency) }}</dd>
+        </div>
+        <div>
+          <dt>Next due date</dt>
+          <dd>{{ a.nextDueDate ? formatDate(a.nextDueDate) : 'None' }}</dd>
+        </div>
+        <div>
+          <dt>Maturity date</dt>
+          <dd>{{ formatDate(a.maturityDate) }}</dd>
+        </div>
+      </dl>
+
+      <div class="stack">
+        <h3>Disbursement</h3>
+        @if (s.view.disbursement; as d) {
+          <dl class="figures">
+            <div>
+              <dt>Status</dt>
+              <dd>{{ d.status === 'SIMULATED_COMPLETED' ? 'Paid out (simulated)' : d.status }}</dd>
+            </div>
+            <div>
+              <dt>Amount</dt>
+              <dd>{{ formatAmount(d.amount, d.currency) }}</dd>
+            </div>
+            <div>
+              <dt>Reference</dt>
+              <dd class="mono">{{ d.reference }}</dd>
+            </div>
+            <div>
+              <dt>Paid out</dt>
+              <dd>{{ formatInstant(d.disbursedAt) }}</dd>
+            </div>
+          </dl>
+        } @else {
+          <p class="muted">Not paid out yet.</p>
+        }
+      </div>
+
+      @if (s.view.schedule.length > 0) {
+        <div class="stack">
+          <div class="section-head">
+            <h3>Repayment schedule</h3>
+            <button
+              type="button"
+              class="btn btn-primary"
+              [disabled]="!canRepay()"
+              aria-describedby="repay-hint"
+              (click)="openRepay()"
+            >
+              Record repayment
+            </button>
+          </div>
+          <p class="muted" id="repay-hint">
+            @if (canRepay()) {
+              Record a repayment you have made. It is applied to the oldest installment first: penalty, then fee, then
+              principal.
+            } @else {
+              Repayments can only be recorded while something is outstanding on a paid-out agreement.
+            }
+          </p>
+          <div class="table-wrap">
+            <table class="table">
+              <caption>Repayment schedule</caption>
+              <thead>
+                <tr>
+                  <th scope="col">#</th>
+                  <th scope="col">Due date</th>
+                  <th scope="col" class="num">Scheduled</th>
+                  <th scope="col" class="num">Paid</th>
+                  <th scope="col" class="num">Penalty</th>
+                  <th scope="col" class="num">Remaining</th>
+                  <th scope="col">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (i of s.view.schedule; track i.sequenceNo) {
+                  <tr>
+                    <td data-label="#">{{ i.sequenceNo }}</td>
+                    <td data-label="Due date">{{ formatDate(i.dueDate) }}</td>
+                    <td class="num" data-label="Scheduled">
+                      <span>
+                        {{ formatAmount(i.totalDue, a.currency) }}
+                        <span class="sub">
+                          Principal {{ formatAmount(i.principalDue, a.currency) }}, fee {{ formatAmount(i.feeDue, a.currency) }}
+                        </span>
+                      </span>
+                    </td>
+                    <td class="num" data-label="Paid">{{ formatAmount(i.principalPaid + i.feePaid + i.penaltyPaid, a.currency) }}</td>
+                    <td class="num" data-label="Penalty">
+                      <span>
+                        {{ formatAmount(i.penaltyAccrued, a.currency) }}
+                        @if (i.penaltyRemaining > 0) {
+                          <span class="sub">{{ formatAmount(i.penaltyRemaining, a.currency) }} unpaid</span>
+                        }
+                        @if (i.penaltyAccruedThrough) {
+                          <span class="sub">to {{ formatDate(i.penaltyAccruedThrough) }}</span>
+                        }
+                      </span>
+                    </td>
+                    <td class="num" data-label="Remaining">{{ formatAmount(i.remaining, a.currency) }}</td>
+                    <td data-label="Status">
+                      <span [class]="badgeClass(installmentInfo[i.status].tone)">{{ installmentInfo[i.status].label }}</span>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        </div>
+      }
+
+      @if (s.view.disbursement) {
+        <div class="stack">
+          <h3>Repayment history</h3>
+          @if (s.view.repayments.length === 0) {
+            <p class="muted">No repayments recorded yet.</p>
+          } @else {
+            <div class="table-wrap">
+              <table class="table">
+                <caption>Repayments recorded, oldest first</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Received</th>
+                    <th scope="col" class="num">Amount</th>
+                    <th scope="col" class="num">Principal</th>
+                    <th scope="col" class="num">Fee</th>
+                    <th scope="col" class="num">Penalty</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (r of s.view.repayments; track r.id) {
+                    <tr>
+                      <td data-label="Received">{{ formatInstant(r.receivedAt) }}</td>
+                      <td class="num" data-label="Amount">{{ formatAmount(r.amount, r.currency) }}</td>
+                      <td class="num" data-label="Principal">{{ formatAmount(r.principalComponent, r.currency) }}</td>
+                      <td class="num" data-label="Fee">{{ formatAmount(r.feeComponent, r.currency) }}</td>
+                      <td class="num" data-label="Penalty">{{ formatAmount(r.penaltyComponent, r.currency) }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+        </div>
+      }
+    }
+  </section>
+}
+
+<dialog
+  #repayDialog
+  class="dialog"
+  aria-labelledby="repay-title"
+  aria-describedby="repay-text"
+  (cancel)="onCancel($event)"
+>
+  @if (view(); as v) {
+    <form class="stack" novalidate (submit)="$event.preventDefault(); submitRepayment()" [attr.aria-busy]="submitting()">
+      <h2 id="repay-title">Record repayment</h2>
+      <div id="repay-text" class="stack">
+        <p>
+          Outstanding: <strong>{{ formatAmount(v.agreement.outstanding, v.agreement.currency) }}</strong>
+        </p>
+        @if (v.agreement.overdue) {
+          <p>Overdue now: {{ formatAmount(v.agreement.overdueAmount ?? 0, v.agreement.currency) }}</p>
+        }
+        <p class="muted">The platform records the repayment; it does not move any money.</p>
+      </div>
+      <div class="field">
+        <label for="repay-amount">Amount (₹)</label>
+        <input
+          #amountInput
+          id="repay-amount"
+          class="input"
+          type="text"
+          inputmode="decimal"
+          autocomplete="off"
+          [value]="amount()"
+          (input)="onAmount($event)"
+          [disabled]="submitting()"
+          [attr.aria-invalid]="amountError() ? 'true' : null"
+          [attr.aria-describedby]="amountError() ? 'repay-amount-hint repay-amount-error' : 'repay-amount-hint'"
+        />
+        <p class="hint" id="repay-amount-hint">In rupees, up to 2 decimal places, and no more than the outstanding amount.</p>
+        @if (amountError(); as message) {
+          <p class="error" id="repay-amount-error">{{ message }}</p>
+        }
+        <div>
+          <button type="button" class="btn btn-ghost btn-sm" (click)="fillOutstanding()" [disabled]="submitting()">
+            Use the full outstanding amount
+          </button>
+        </div>
+      </div>
+      @if (dialogError(); as message) {
+        <div #dialogAlert class="alert alert-danger" role="alert" tabindex="-1">{{ message }}</div>
+      }
+      <div class="cluster dialog-actions">
+        <button type="button" class="btn btn-ghost" (click)="closeRepay()" [disabled]="submitting()">Cancel</button>
+        <button type="submit" class="btn btn-primary" [disabled]="submitting()">
+          {{ submitting() ? 'Recording…' : 'Record repayment' }}
+        </button>
+      </div>
+    </form>
+  }
+</dialog>

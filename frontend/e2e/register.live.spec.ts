@@ -3,11 +3,11 @@ import { randomBytes, randomUUID } from 'node:crypto';
 
 /**
  * Registration through the real gateway and auth-service; opt in as for auth.live.spec.ts (IFP_STACK=1,
- * UI_BASE_URL=http://localhost:4200, optional IFP_GATEWAY_URL). Desktop only: the gateway allows 5 sign-ups per
- * burst per client address, and this file uses 3.
+ * UI_BASE_URL=http://localhost:4200, optional IFP_GATEWAY_URL and IFP_AUTH_URL). Desktop only: the gateway allows 5
+ * sign-ups per burst per client address, and this file uses 3.
  */
 const GATEWAY = process.env['IFP_GATEWAY_URL'] ?? 'http://localhost:8080';
-const AUTH = 'http://localhost:9000';
+const AUTH = process.env['IFP_AUTH_URL'] ?? 'http://localhost:9000';
 
 test.skip(process.env['IFP_STACK'] !== '1', 'needs the running stack (IFP_STACK=1)');
 test.skip(({ isMobile }) => isMobile, 'registration is rate limited per client address; one viewport is enough');

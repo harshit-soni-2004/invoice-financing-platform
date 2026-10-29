@@ -5,9 +5,10 @@ import { randomBytes, randomUUID } from 'node:crypto';
  * Real sign-in against a running auth-service (:9000) and gateway, as described in the README. Opt in with
  * IFP_STACK=1 and UI_BASE_URL=http://localhost:4200: auth-service only accepts the registered localhost callback.
  * IFP_GATEWAY_URL points the app at a gateway on another port (the app's config.json is overridden in the browser).
+ * IFP_AUTH_URL is where the sign-in page is expected; it must match the app's authIssuer.
  */
 const GATEWAY = process.env['IFP_GATEWAY_URL'] ?? 'http://localhost:8080';
-const AUTH = 'http://localhost:9000';
+const AUTH = process.env['IFP_AUTH_URL'] ?? 'http://localhost:9000';
 
 test.skip(process.env['IFP_STACK'] !== '1', 'needs the running stack (IFP_STACK=1)');
 test.describe.configure({ mode: 'serial' });

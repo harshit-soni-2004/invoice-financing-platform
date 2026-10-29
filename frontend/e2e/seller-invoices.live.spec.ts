@@ -4,11 +4,11 @@ import { randomBytes, randomUUID } from 'node:crypto';
 /**
  * The seller workflow against the running auth-service (:9000), gateway and invoice-service, as described in the
  * README. Opt in with IFP_STACK=1 and UI_BASE_URL=http://localhost:4200; IFP_GATEWAY_URL points the app at a gateway on
- * another port. Each run registers a new seller, so it only ever touches that seller's own invoices. Desktop only:
- * registration is rate-limited per client address.
+ * another port, and IFP_AUTH_URL is where the sign-in page is expected. Each run registers a new seller, so it only
+ * ever touches that seller's own invoices. Desktop only: registration is rate-limited per client address.
  */
 const GATEWAY = process.env['IFP_GATEWAY_URL'] ?? 'http://localhost:8080';
-const AUTH = 'http://localhost:9000';
+const AUTH = process.env['IFP_AUTH_URL'] ?? 'http://localhost:9000';
 /** A dev-seed invoice owned by the demo seller (invoice-service's `dev` profile); never visible to other sellers. */
 const OTHER_SELLERS_INVOICE = 'a0000000-0000-4000-8000-000000000001';
 

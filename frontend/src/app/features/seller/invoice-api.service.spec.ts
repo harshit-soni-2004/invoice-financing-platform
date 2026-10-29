@@ -192,4 +192,54 @@ describe('InvoiceApiService', () => {
       });
     }
   });
+
+  describe('draft edit and cancellation', () => {
+    const draft: InvoiceDraft = {
+      invoiceNumber: 'INV-2026/015',
+      buyerName: 'Kaveri Textiles Pvt Ltd',
+      buyerGstin: null,
+      description: null,
+      amount: '99000.00',
+      issueDate: '2026-10-20',
+      dueDate: '2026-12-19',
+    };
+
+    it('replaces a draft with PUT and If-Match, returning the new ETag', async () => {
+      const result = api.update('id-1', draft, '"2"');
+      const request = http.expectOne(`${URL}/id-1`);
+      expect(request.request.method).toBe('PUT');
+      expect(request.request.headers.get('If-Match')).toBe('"2"');
+      expect(request.request.body).toEqual(draft);
+      request.flush(invoiceFixture({ invoiceNumber: 'INV-2026/015', version: 3 }), { headers: new HttpHeaders({ ETag: '"3"' }) });
+      const { invoice, etag } = await result;
+      expect(invoice.invoiceNumber).toBe('INV-2026/015');
+      expect(etag).toBe('"3"');
+    });
+
+    it('maps a stale edit and an edit of a non-draft', async () => {
+      let result = api.update('id-1', draft, '"2"');
+      http.expectOne(`${URL}/id-1`).flush({ code: 'VERSION_MISMATCH' }, { status: 412, statusText: 'Precondition Failed' });
+      expect(await failureOf(result)).toEqual({ kind: 'stale' });
+
+      result = api.update('id-1', draft, '"2"');
+      http.expectOne(`${URL}/id-1`).flush({ code: 'INVOICE_NOT_EDITABLE' }, { status: 409, statusText: 'Conflict' });
+      expect(await failureOf(result)).toEqual({ kind: 'not-editable' });
+    });
+
+    it('cancels with If-Match and sends the reason only when there is one', async () => {
+      let result = api.cancel('id-1', '"4"', 'Order withdrawn');
+      let request = http.expectOne(`${URL}/id-1/cancel`);
+      expect(request.request.method).toBe('POST');
+      expect(request.request.headers.get('If-Match')).toBe('"4"');
+      expect(request.request.body).toEqual({ reason: 'Order withdrawn' });
+      request.flush(invoiceFixture({ status: 'CANCELLED', version: 5 }), { headers: new HttpHeaders({ ETag: '"5"' }) });
+      expect((await result).invoice.status).toBe('CANCELLED');
+
+      result = api.cancel('id-1', '"5"', null);
+      request = http.expectOne(`${URL}/id-1/cancel`);
+      expect(request.request.body).toBeNull();
+      request.flush({ code: 'INVALID_STATUS_TRANSITION', currentStatus: 'CANCELLED' }, { status: 409, statusText: 'Conflict' });
+      expect(await failureOf(result)).toEqual({ kind: 'invalid-transition', currentStatus: 'CANCELLED' });
+    });
+  });
 });

@@ -1,0 +1,198 @@
+<section class="card stack" aria-labelledby="offers-heading" [attr.aria-busy]="state().kind === 'loading' || busy() !== null">
+  <div class="section-head">
+    <h2 id="offers-heading">Financing offers</h2>
+    <button type="button" class="btn btn-secondary btn-sm" (click)="reload()" [disabled]="busy() !== null">
+      Refresh offers
+    </button>
+  </div>
+
+  @if (notice(); as notice) {
+    @if (notice.tone === 'success') {
+      <div #noticeBox class="alert alert-success notice" role="status" tabindex="-1">{{ notice.message }}</div>
+    } @else {
+      <div #noticeBox [class]="'alert alert-' + notice.tone + ' notice'" role="alert" tabindex="-1">{{ notice.message }}</div>
+    }
+  }
+
+  @let s = state();
+  @if (s.kind === 'loading') {
+    <p class="muted" role="status">Loading offers…</p>
+  } @else if (s.kind === 'error') {
+    <div class="alert alert-danger" role="alert">The offers could not be loaded. {{ s.message }}</div>
+    <div><button type="button" class="btn btn-secondary" (click)="reload()">Try again</button></div>
+  } @else {
+    @if (s.offers.length === 0) {
+      <p class="muted">
+        No offers yet. Financiers can see this invoice and may make offers; refresh to check for new ones.
+      </p>
+    } @else {
+      <p class="muted">
+        Accepting an offer creates a financing agreement and closes the other open offers. Only open offers that
+        have not expired can be accepted or rejected.
+      </p>
+      <div class="table-wrap">
+        <table class="table">
+          <caption>Offers on this invoice, newest first</caption>
+          <thead>
+            <tr>
+              <th scope="col" class="num">Advance</th>
+              <th scope="col" class="num">Annual rate</th>
+              <th scope="col" class="num">Processing fee</th>
+              <th scope="col" class="num">Installments</th>
+              <th scope="col">Expires</th>
+              <th scope="col">Status</th>
+              <th scope="col"><span class="visually-hidden">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (offer of s.offers; track offer.id) {
+              <tr>
+                <td class="num" data-label="Advance">{{ formatAmount(offer.advanceAmount, offer.currency) }}</td>
+                <td class="num" data-label="Annual rate">{{ formatRate(offer.annualRate) }}</td>
+                <td class="num" data-label="Processing fee">{{ formatAmount(offer.processingFee, offer.currency) }}</td>
+                <td class="num" data-label="Installments">{{ offer.installmentCount }}</td>
+                <td data-label="Expires">
+                  <span>
+                    {{ formatInstant(offer.expiresAt) }}
+                    @if (offer.status === 'OFFERED' && isExpired(offer)) {
+                      <span class="sub">Validity has ended</span>
+                    }
+                  </span>
+                </td>
+                <td data-label="Status">
+                  <span>
+                    <span [class]="badgeClass(statusInfo[offer.status].tone)">{{ statusInfo[offer.status].label }}</span>
+                    @if (offer.statusReason) {
+                      <span class="sub">{{ offer.statusReason }}</span>
+                    }
+                  </span>
+                </td>
+                <td class="actions-cell">
+                  @if (offer.status === 'OFFERED') {
+                    <div class="row-actions">
+                      <button
+                        type="button"
+                        class="btn btn-primary btn-sm"
+                        [disabled]="!canDecide(offer)"
+                        [attr.aria-label]="'Accept offer of ' + formatAmount(offer.advanceAmount, offer.currency)"
+                        (click)="open('accept', offer)"
+                      >
+                        Accept
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        [disabled]="!canDecide(offer)"
+                        [attr.aria-label]="'Reject offer of ' + formatAmount(offer.advanceAmount, offer.currency)"
+                        (click)="open('reject', offer)"
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      @if (s.truncated) {
+        <p class="muted">Only the 100 newest offers are shown.</p>
+      }
+    }
+  }
+</section>
+
+<dialog
+  #acceptDialog
+  class="dialog"
+  aria-labelledby="accept-title"
+  aria-describedby="accept-text"
+  (cancel)="onCancel($event)"
+>
+  @if (selected(); as offer) {
+    <div class="stack" [attr.aria-busy]="busy() === 'accept'">
+      <h2 id="accept-title">Accept this offer?</h2>
+      <dl class="terms">
+        <div>
+          <dt>Advance</dt>
+          <dd>{{ formatAmount(offer.advanceAmount, offer.currency) }}</dd>
+        </div>
+        <div>
+          <dt>Annual rate</dt>
+          <dd>{{ formatRate(offer.annualRate) }}</dd>
+        </div>
+        <div>
+          <dt>Processing fee</dt>
+          <dd>{{ formatAmount(offer.processingFee, offer.currency) }}</dd>
+        </div>
+        <div>
+          <dt>Installments</dt>
+          <dd>{{ offer.installmentCount }}</dd>
+        </div>
+        <div>
+          <dt>Offer expires</dt>
+          <dd>{{ formatInstant(offer.expiresAt) }}</dd>
+        </div>
+      </dl>
+      <p id="accept-text">
+        Accepting creates a financing agreement with this financier and closes every other open offer on this invoice.
+        The financier then approves the agreement and pays out the advance; the financing fee is fixed at payout.
+      </p>
+      @if (dialogError(); as message) {
+        <div #dialogAlert class="alert alert-danger" role="alert" tabindex="-1">{{ message }}</div>
+      }
+      <div class="cluster dialog-actions">
+        <button type="button" class="btn btn-ghost" autofocus (click)="close('accept')" [disabled]="busy() !== null">
+          Keep reviewing
+        </button>
+        <button type="button" class="btn btn-primary" (click)="confirm('accept')" [disabled]="busy() !== null">
+          {{ busy() === 'accept' ? 'Accepting…' : 'Accept offer' }}
+        </button>
+      </div>
+    </div>
+  }
+</dialog>
+
+<dialog
+  #rejectDialog
+  class="dialog"
+  aria-labelledby="reject-title"
+  aria-describedby="reject-text"
+  (cancel)="onCancel($event)"
+>
+  @if (selected(); as offer) {
+    <div class="stack" [attr.aria-busy]="busy() === 'reject'">
+      <h2 id="reject-title">Reject this offer?</h2>
+      <p id="reject-text">
+        The offer of {{ formatAmount(offer.advanceAmount, offer.currency) }} at {{ formatRate(offer.annualRate) }} a year
+        will be closed. This cannot be undone.
+      </p>
+      <div class="field">
+        <label for="reject-reason">Reason <span class="muted">(optional)</span></label>
+        <textarea
+          id="reject-reason"
+          class="textarea"
+          rows="3"
+          [attr.maxlength]="reasonMax"
+          [value]="reason()"
+          (input)="onReason($event)"
+          [disabled]="busy() !== null"
+          aria-describedby="reject-reason-hint"
+        ></textarea>
+        <p class="hint" id="reject-reason-hint">The financier can see it. Up to {{ reasonMax }} characters.</p>
+      </div>
+      @if (dialogError(); as message) {
+        <div #dialogAlert class="alert alert-danger" role="alert" tabindex="-1">{{ message }}</div>
+      }
+      <div class="cluster dialog-actions">
+        <button type="button" class="btn btn-ghost" autofocus (click)="close('reject')" [disabled]="busy() !== null">
+          Keep offer
+        </button>
+        <button type="button" class="btn btn-danger" (click)="confirm('reject')" [disabled]="busy() !== null">
+          {{ busy() === 'reject' ? 'Rejecting…' : 'Reject offer' }}
+        </button>
+      </div>
+    </div>
+  }
+</dialog>
