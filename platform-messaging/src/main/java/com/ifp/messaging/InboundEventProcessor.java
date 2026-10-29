@@ -18,8 +18,9 @@ import java.util.function.Consumer;
 /**
  * Idempotent consumption: the {@code processed_events} row and the handler's business effect commit in one
  * transaction, so a redelivered event (same event ID, same consumer) is skipped. Malformed messages and unknown
- * schema versions are rejected straight to the dead-letter queue; any other failure propagates so the listener's
- * bounded retry can try again before dead-lettering.
+ * schema versions are rejected straight to the dead-letter queue; any other failure propagates so the queue's
+ * delayed retry tiers ({@link DelayedRetryAdvice}) or the listener's bounded retry can try again before
+ * dead-lettering.
  */
 public class InboundEventProcessor {
 

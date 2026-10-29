@@ -30,14 +30,23 @@ public class RepaymentAllocation {
     @Column(name = "fee_part", nullable = false, precision = 19, scale = 2, updatable = false)
     private BigDecimal feePart;
 
+    @Column(name = "penalty_part", nullable = false, precision = 19, scale = 2, updatable = false)
+    private BigDecimal penaltyPart;
+
     protected RepaymentAllocation() {
     }
 
     public RepaymentAllocation(UUID repaymentId, UUID installmentId, BigDecimal principalPart, BigDecimal feePart) {
+        this(repaymentId, installmentId, principalPart, feePart, Money.ZERO);
+    }
+
+    public RepaymentAllocation(UUID repaymentId, UUID installmentId, BigDecimal principalPart, BigDecimal feePart,
+                               BigDecimal penaltyPart) {
         this.repaymentId = repaymentId;
         this.installmentId = installmentId;
         this.principalPart = principalPart;
         this.feePart = feePart;
+        this.penaltyPart = penaltyPart;
     }
 
     public UUID getInstallmentId() {
@@ -50,5 +59,9 @@ public class RepaymentAllocation {
 
     public BigDecimal getFeePart() {
         return feePart;
+    }
+
+    public BigDecimal getPenaltyPart() {
+        return penaltyPart;
     }
 }

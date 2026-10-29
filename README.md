@@ -174,7 +174,7 @@ $env:REDIS_PASSWORD = Get-DotEnv REDIS_PASSWORD
 java -jar services/gateway/target/gateway-0.1.0-SNAPSHOT.jar
 ```
 
-The dev seed invoices predate the event pipeline and are never published, so they do not appear in financing opportunities. Invoices you create and list through the API do. Inspect queues, including each `<queue>.dlq`, at http://localhost:15672.
+The dev seed invoices predate the event pipeline and are never published, so they do not appear in financing opportunities. Invoices you create and list through the API do. Inspect queues, including each `<queue>.dlq` and financing's delayed retry tiers (`financing.invoice-events.retry.*`), at http://localhost:15672. See `docs/architecture.md` for the replay procedure.
 
 | Variable | Default | Used by | Purpose |
 |---|---|---|---|

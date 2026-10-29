@@ -33,9 +33,10 @@ public class InvoiceEventsListener {
         this.objectMapper = objectMapper;
     }
 
+    /** Transient failures wait in delay tiers (10 s, 1 min, 10 min) instead of blocking the listener thread. */
     @Bean
     static Declarables invoiceEventsQueue() {
-        return EventTopology.consumerQueue(QUEUE, "invoice.*");
+        return EventTopology.consumerQueueWithRetries(QUEUE, "invoice.*");
     }
 
     @RabbitListener(queues = QUEUE)

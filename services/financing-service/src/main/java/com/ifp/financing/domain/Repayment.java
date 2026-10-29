@@ -29,6 +29,9 @@ public class Repayment {
     @Column(name = "fee_component", nullable = false, precision = 19, scale = 2, updatable = false)
     private BigDecimal feeComponent;
 
+    @Column(name = "penalty_component", nullable = false, precision = 19, scale = 2, updatable = false)
+    private BigDecimal penaltyComponent;
+
     @Column(name = "currency", nullable = false, length = 3, updatable = false)
     private String currency;
 
@@ -43,11 +46,17 @@ public class Repayment {
 
     public Repayment(UUID id, UUID agreementId, BigDecimal principalComponent, BigDecimal feeComponent,
                      UUID recordedBy, Instant receivedAt) {
+        this(id, agreementId, principalComponent, feeComponent, Money.ZERO, recordedBy, receivedAt);
+    }
+
+    public Repayment(UUID id, UUID agreementId, BigDecimal principalComponent, BigDecimal feeComponent,
+                     BigDecimal penaltyComponent, UUID recordedBy, Instant receivedAt) {
         this.id = id;
         this.agreementId = agreementId;
         this.principalComponent = principalComponent;
         this.feeComponent = feeComponent;
-        this.amount = principalComponent.add(feeComponent);
+        this.penaltyComponent = penaltyComponent;
+        this.amount = principalComponent.add(feeComponent).add(penaltyComponent);
         this.currency = Money.CURRENCY;
         this.recordedBy = recordedBy;
         this.receivedAt = receivedAt;
@@ -71,6 +80,10 @@ public class Repayment {
 
     public BigDecimal getFeeComponent() {
         return feeComponent;
+    }
+
+    public BigDecimal getPenaltyComponent() {
+        return penaltyComponent;
     }
 
     public String getCurrency() {
