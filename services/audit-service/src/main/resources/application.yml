@@ -19,16 +19,16 @@ spring:
     port: ${RABBITMQ_PORT:5672}
     username: ${RABBITMQ_USER:}
     password: ${RABBITMQ_PASSWORD:}
+    # A failed message is only acknowledged once the broker confirms its copy in the next retry tier.
+    publisher-confirm-type: correlated
     listener:
       simple:
         # Failed messages go to the queue's dead-letter queue instead of looping.
         default-requeue-rejected: false
+        # No in-listener retry: the consumer queue has delayed retry tiers (10 s, 1 min, 10 min) before its DLQ,
+        # so a failing message never blocks a consumer thread while it waits.
         retry:
-          enabled: true
-          max-attempts: 4
-          initial-interval: 1s
-          multiplier: 2
-          max-interval: 10s
+          enabled: false
 
   security:
     oauth2:

@@ -24,9 +24,10 @@ public class NotificationEventsListener {
         this.notifications = notifications;
     }
 
+    /** Transient failures (SMTP outages) wait in delay tiers (10 s, 1 min, 10 min) instead of blocking the listener thread. */
     @Bean
     static Declarables notificationEventsQueue() {
-        return EventTopology.consumerQueue(QUEUE, "user.registered", "invoice.*", "financing.*");
+        return EventTopology.consumerQueueWithRetries(QUEUE, "user.registered", "invoice.*", "financing.*");
     }
 
     @RabbitListener(queues = QUEUE)

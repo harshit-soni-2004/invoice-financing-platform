@@ -36,9 +36,10 @@ public class FinancingEventsListener {
         this.invoices = invoices;
     }
 
+    /** Transient failures wait in delay tiers (10 s, 1 min, 10 min) instead of blocking the listener thread. */
     @Bean
     static Declarables financingEventsQueue() {
-        return EventTopology.consumerQueue(QUEUE, "financing.disbursed", "financing.settled");
+        return EventTopology.consumerQueueWithRetries(QUEUE, "financing.disbursed", "financing.settled");
     }
 
     @RabbitListener(queues = QUEUE)

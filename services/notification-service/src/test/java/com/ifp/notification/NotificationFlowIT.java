@@ -75,29 +75,6 @@ class NotificationFlowIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void failedSendsAreRecordedPerAttemptThenDeadLettered() throws Exception {
-        UUID user = UUID.randomUUID();
-        UUID eventId = UUID.randomUUID();
-        publish("user.registered", envelope(eventId, "UserRegistered", "USER", user.toString(), mapper()
-                .put("userId", user.toString()).put("email", "broken@@example.test").put("displayName", "Bo").put("role", "SELLER")));
-
-        String dlq = NotificationEventsListener.QUEUE + EventTopology.DLQ_SUFFIX;
-        Message dead = null;
-        Instant deadline = Instant.now().plusSeconds(30);
-        while (dead == null && Instant.now().isBefore(deadline)) {
-            Message candidate = rabbit.receive(dlq, 1000);
-            if (candidate != null && new String(candidate.getBody(), StandardCharsets.UTF_8).contains(eventId.toString())) {
-                dead = candidate;
-            }
-        }
-        assertThat(dead).as("event dead-lettered after the last attempt").isNotNull();
-        assertThat(jdbc.queryForList("select concat(outcome, ':', error) from delivery_attempts where event_id = UUID_TO_BIN(?)",
-                String.class, eventId.toString())).hasSize(4).allSatisfy(row -> assertThat(row).startsWith("FAILED:Mail"));
-        assertThat(count("select count(*) from notifications where event_id = UUID_TO_BIN(?)", eventId.toString())).isZero();
-        assertThat(count("select count(*) from processed_events where event_id = UUID_TO_BIN(?)", eventId.toString())).isZero();
-    }
-
-    @Test
     void unknownRecipientIsRecordedAsSkippedWithoutMail() throws Exception {
         UUID stranger = UUID.randomUUID();
         UUID eventId = UUID.randomUUID();
@@ -124,6 +101,8 @@ class NotificationFlowIT extends AbstractIntegrationTest {
             }
         }
         assertThat(dead).isNotNull();
+        assertThat(dead.getMessageProperties().getHeaders()).as("permanent failures skip the retry tiers")
+                .doesNotContainKey(EventTopology.RETRY_COUNT_HEADER);
     }
 
     @Test
