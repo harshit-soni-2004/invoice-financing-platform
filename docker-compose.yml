@@ -110,7 +110,7 @@ services:
 
   # DEVELOPMENT ONLY: creates the auth-service signing key once in the jwt-keys volume; later runs keep it.
   jwt-keygen:
-    image: eclipse-temurin:21-jdk-alpine
+    image: eclipse-temurin:25-jdk-alpine
     profiles: [app]
     user: "0:0"
     entrypoint: ["sh", "-c"]
