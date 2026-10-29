@@ -68,6 +68,8 @@ jobs:
         with:
           image-ref: ifp-scan/${{ matrix.name }}:${{ github.sha }}
           severity: CRITICAL
+          # Unfixed CVEs have no upgrade path, so only fixable critical findings block a push.
+          ignore-unfixed: true
           exit-code: '1'
           format: table
 

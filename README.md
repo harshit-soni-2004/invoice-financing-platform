@@ -1,7 +1,6 @@
 # Invoice Financing Platform
 
-<!-- Replace OWNER/REPO with the GitHub repository once it is published. -->
-[![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/OWNER/REPO/actions/workflows/ci.yml)
+[![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/OWNER/REPO/actions/workflows/ci.yml) <!-- Replace OWNER/REPO once the GitHub remote exists. -->
 
 A portfolio-quality **simulation** of invoice financing: sellers submit invoices, financiers make offers, accepted offers are disbursed (simulated), and repayments are recorded until settlement.
 
