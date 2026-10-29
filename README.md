@@ -1,6 +1,6 @@
 # Invoice Financing Platform
 
-[![CI](https://github.com/Mintu531/invoice-financing-platform/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Mintu531/invoice-financing-platform/actions/workflows/ci.yml)
+[![CI](https://github.com/harshit-soni-2004/invoice-financing-platform/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/harshit-soni-2004/invoice-financing-platform/actions/workflows/ci.yml)
 
 An event-driven microservices platform, built with Spring Boot and Angular, where sellers get early payment on their invoices and financiers compete to fund them.
 
