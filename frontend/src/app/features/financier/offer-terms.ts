@@ -51,6 +51,7 @@ export function expiryProblem(expiresAt: Date, dueDate: string, now: number): Ex
   if (at <= now) {
     return 'past';
   }
+  // 14 days mirrors financing-service `financing.max-offer-validity` (14d).
   if (at > now + FINANCING_LIMITS.maxOfferValidityDays * DAY_MS) {
     return 'too-far';
   }

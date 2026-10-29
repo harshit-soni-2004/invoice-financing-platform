@@ -408,6 +408,13 @@ The script also checks the negative paths:
 - **Notification read state:** notification-service stores no read/unread state and has no mark-as-read endpoint, so the app cannot mark notifications as read.
 - **Header "new" count:** the notification count in the app header is derived from a per-device `localStorage` timestamp of the newest notification the user has seen, not from server state. It does not sync across browsers or devices.
 
+### Known gaps (financier UI)
+
+- **No opportunity filters.** `GET /api/financing/opportunities` supports only sorting and paging, so the list offers nothing more.
+- **No reject or cancel agreement actions.** financing-service allows them, but the UI offers only approve and disburse for now.
+- **The financier-specific 403 message appears only for actions.** The core auth interceptor sends any `403` on a page load to the shared no-access page, so only refused actions (offer, withdraw, approve, disburse) explain that new financiers need an administrator's approval.
+- **The disbursement `Idempotency-Key` is kept in memory only.** A retry on the same page reuses it, but a full page reload creates a new key. That is safe because the reloaded page shows the agreement's current status and offers disbursement only while it is still approved.
+
 ## 9. Roadmap
 
 | Phase | Scope | Depends on |

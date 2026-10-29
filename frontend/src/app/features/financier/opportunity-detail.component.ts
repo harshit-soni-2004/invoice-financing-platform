@@ -142,6 +142,7 @@ export class OpportunityDetailComponent {
 
   protected readonly openOffer = computed(() => this.offers()?.find((offer) => offer.status === 'OFFERED') ?? null);
 
+  // 12 mirrors financing-service `financing.max-installments`.
   protected readonly maxInstallments = computed(() =>
     Math.max(0, Math.min(FINANCING_LIMITS.maxInstallments, this.opportunity()?.daysToMaturity ?? 0)),
   );
@@ -444,6 +445,7 @@ export class OpportunityDetailComponent {
         return { format: true };
       }
       const percent = Number(fraction) * 100;
+      // 36% mirrors financing-service `financing.max-annual-rate` (0.3600).
       return percent <= 0 || percent > FINANCING_LIMITS.maxAnnualRatePercent ? { range: true } : null;
     };
   }

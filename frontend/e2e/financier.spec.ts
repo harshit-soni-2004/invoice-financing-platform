@@ -8,6 +8,8 @@ const OPPORTUNITY = '/financier/opportunities/b0000000-0000-4000-8000-0000000000
 const AGREEMENT = '/financier/agreements/e0000000-0000-4000-8000-000000000001';
 
 const headerBadge = (page: Page) => page.locator('.page-header .badge');
+// Loading messages are also role="status", so success notices are located by their own class.
+const successNotice = (page: Page) => page.locator('.notice[role="status"]');
 
 async function fillOffer(page: Page, advance = '4,80,000'): Promise<void> {
   await page.getByLabel('Advance (₹)').fill(advance);
@@ -49,7 +51,7 @@ test.describe('financier workflow (mocked auth-service and gateway)', () => {
     api.setDelay(400);
     await page.getByRole('button', { name: 'Send offer' }).dblclick();
     await expect(page.getByRole('button', { name: 'Sending offer…' })).toBeDisabled();
-    await expect(page.getByRole('status')).toContainText('Offer sent.');
+    await expect(successNotice(page)).toContainText('Offer sent.');
     api.setDelay(0);
     const creates = api.requests.filter((r) => r.method() === 'POST' && r.url().endsWith('/api/financing/offers'));
     expect(creates).toHaveLength(1);
@@ -73,7 +75,7 @@ test.describe('financier workflow (mocked auth-service and gateway)', () => {
 
     api.setDelay(400);
     await page.getByRole('button', { name: 'Withdraw offer' }).dblclick();
-    await expect(page.getByRole('status')).toContainText('Offer withdrawn.');
+    await expect(successNotice(page)).toContainText('Offer withdrawn.');
     api.setDelay(0);
     expect(api.requests.filter((r) => r.url().endsWith('/withdraw'))).toHaveLength(1);
     await expect(offer).toContainText('Withdrawn');
@@ -137,7 +139,7 @@ test.describe('financier workflow (mocked auth-service and gateway)', () => {
 
     await expect(page.getByRole('button', { name: 'Disburse advance' })).toBeDisabled();
     await page.getByRole('button', { name: 'Approve agreement' }).click();
-    await expect(page.getByRole('status')).toContainText('Agreement approved.');
+    await expect(successNotice(page)).toContainText('Agreement approved.');
     await expect(headerBadge(page)).toHaveText('Approved');
     await expect(page.getByRole('button', { name: 'Approve agreement' })).toBeDisabled();
 
@@ -148,7 +150,7 @@ test.describe('financier workflow (mocked auth-service and gateway)', () => {
     api.setDelay(400);
     await page.getByRole('button', { name: 'Confirm disbursement' }).dblclick();
     await expect(page.getByRole('button', { name: 'Disbursing…' })).toBeDisabled();
-    await expect(page.getByRole('status')).toContainText('disbursed (simulated)');
+    await expect(successNotice(page)).toContainText('disbursed (simulated)');
     api.setDelay(0);
 
     const disburses = api.requests.filter((r) => r.url().endsWith('/disburse'));
@@ -181,7 +183,7 @@ test.describe('financier workflow (mocked auth-service and gateway)', () => {
 
     await page.getByRole('button', { name: 'Disburse advance' }).click();
     await page.getByRole('button', { name: 'Confirm disbursement' }).click();
-    await expect(page.getByRole('status')).toContainText('had already been disbursed');
+    await expect(successNotice(page)).toContainText('had already been disbursed');
     await expect(headerBadge(page)).toHaveText('Disbursed');
 
     const keys = await Promise.all(api.requests.filter((r) => r.url().endsWith('/disburse')).map((r) => r.headerValue('idempotency-key')));
