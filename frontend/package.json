@@ -33,7 +33,7 @@
     "@angular/cli": "^21.2.28",
     "@angular/compiler-cli": "^21.2.25",
     "@playwright/test": "1.64.1",
-    "@types/jasmine": "~5.1.0",
+    "@types/jasmine": "~7.0.0",
     "angular-eslint": "21.4.0",
     "eslint": "^9.28.0",
     "jasmine-core": "~5.6.0",
