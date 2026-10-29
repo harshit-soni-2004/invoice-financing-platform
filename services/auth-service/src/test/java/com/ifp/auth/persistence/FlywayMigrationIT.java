@@ -37,6 +37,18 @@ class FlywayMigrationIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void statusConstraintAcceptsRejectedAndRejectionColumnsAreNullable() {
+        String email = uniqueEmail("rejected");
+        insertUser(email, "FINANCIER", "REJECTED");
+
+        assertThat(jdbc.queryForObject("SELECT rejection_reason IS NULL AND rejected_at IS NULL FROM users WHERE email = ?",
+                Boolean.class, email)).isTrue();
+        assertThat(jdbc.queryForList(
+                "SELECT version FROM flyway_schema_history WHERE success = 1 AND version IS NOT NULL", String.class))
+                .contains("700");
+    }
+
+    @Test
     void emailIsUniqueRegardlessOfCase() {
         String email = uniqueEmail("dup");
         insertUser(email, "SELLER", "ACTIVE");

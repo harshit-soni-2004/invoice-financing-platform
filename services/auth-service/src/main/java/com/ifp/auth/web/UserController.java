@@ -4,7 +4,9 @@ import com.ifp.auth.user.Role;
 import com.ifp.auth.user.UserAdminService;
 import com.ifp.auth.user.UserStatus;
 import com.ifp.auth.web.dto.PageResponse;
+import com.ifp.auth.web.dto.RejectUserRequest;
 import com.ifp.auth.web.dto.UserResponse;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import org.springframework.data.domain.PageRequest;
@@ -15,6 +17,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -50,5 +53,13 @@ public class UserController {
     @PreAuthorize("hasRole('ADMIN')")
     public UserResponse activate(@PathVariable UUID id, @AuthenticationPrincipal Jwt jwt) {
         return UserResponse.from(userAdminService.activate(id, UUID.fromString(jwt.getSubject())));
+    }
+
+    @PostMapping("/api/admin/users/{id}/reject")
+    @PreAuthorize("hasRole('ADMIN')")
+    public UserResponse reject(@PathVariable UUID id, @RequestBody(required = false) @Valid RejectUserRequest request,
+                               @AuthenticationPrincipal Jwt jwt) {
+        String reason = request == null ? null : request.reason();
+        return UserResponse.from(userAdminService.reject(id, UUID.fromString(jwt.getSubject()), reason));
     }
 }

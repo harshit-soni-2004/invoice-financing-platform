@@ -64,6 +64,32 @@ class UserAccountTest {
         assertThat(financier.getUpdatedAt()).isEqualTo(LATER);
     }
 
+    @Test
+    void rejectionIsTerminalAndOnlyFromPendingApproval() {
+        UserAccount financier = register(Role.FINANCIER);
+
+        assertThat(financier.reject("Unverifiable entity", LATER)).isTrue();
+        assertThat(financier.getStatus()).isEqualTo(UserStatus.REJECTED);
+        assertThat(financier.getRejectionReason()).isEqualTo("Unverifiable entity");
+        assertThat(financier.getRejectedAt()).isEqualTo(LATER);
+        assertThat(financier.canSignIn()).isFalse();
+
+        assertThat(financier.reject("again", LATER.plusSeconds(1))).isFalse();
+        assertThat(financier.activate(LATER.plusSeconds(1))).isFalse();
+        assertThat(financier.getStatus()).isEqualTo(UserStatus.REJECTED);
+        assertThat(financier.getRejectionReason()).isEqualTo("Unverifiable entity");
+        assertThat(financier.getUpdatedAt()).isEqualTo(LATER);
+    }
+
+    @Test
+    void activeAccountsCannotBeRejected() {
+        UserAccount seller = register(Role.SELLER);
+
+        assertThat(seller.reject(null, LATER)).isFalse();
+        assertThat(seller.getStatus()).isEqualTo(UserStatus.ACTIVE);
+        assertThat(seller.getRejectedAt()).isNull();
+    }
+
     private static UserAccount register(Role role) {
         return UserAccount.selfRegistered(UUID.randomUUID(), "user@example.test", "{bcrypt}hash", "User", role, NOW);
     }
