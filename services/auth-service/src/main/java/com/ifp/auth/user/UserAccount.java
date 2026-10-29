@@ -47,6 +47,12 @@ public class UserAccount {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    @Column(name = "rejection_reason", length = 500)
+    private String rejectionReason;
+
+    @Column(name = "rejected_at")
+    private Instant rejectedAt;
+
     protected UserAccount() {
     }
 
@@ -91,6 +97,18 @@ public class UserAccount {
         return true;
     }
 
+    /** @return false if the account was not waiting for approval (nothing changed). A blank reason is stored as none. */
+    public boolean reject(String reason, Instant now) {
+        if (status != UserStatus.PENDING_APPROVAL) {
+            return false;
+        }
+        status = UserStatus.REJECTED;
+        rejectionReason = reason == null || reason.isBlank() ? null : reason.strip();
+        rejectedAt = now;
+        updatedAt = now;
+        return true;
+    }
+
     public boolean canSignIn() {
         return status == UserStatus.ACTIVE;
     }
@@ -129,5 +147,13 @@ public class UserAccount {
 
     public Instant getUpdatedAt() {
         return updatedAt;
+    }
+
+    public String getRejectionReason() {
+        return rejectionReason;
+    }
+
+    public Instant getRejectedAt() {
+        return rejectedAt;
     }
 }

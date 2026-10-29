@@ -26,9 +26,10 @@ public class AuditEventsListener {
         this.recorder = recorder;
     }
 
+    /** Transient failures wait in delay tiers (10 s, 1 min, 10 min) instead of blocking the listener thread. */
     @Bean
     static Declarables auditEventsQueue() {
-        return EventTopology.consumerQueue(QUEUE, "#");
+        return EventTopology.consumerQueueWithRetries(QUEUE, "#");
     }
 
     @RabbitListener(queues = QUEUE)

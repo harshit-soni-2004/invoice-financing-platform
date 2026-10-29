@@ -17,17 +17,21 @@ import com.ifp.messaging.EventTopology;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.core.AmqpAdmin;
 import org.springframework.amqp.core.BindingBuilder;
+import org.springframework.amqp.core.Declarables;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageProperties;
 import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.core.TopicExchange;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -48,6 +52,8 @@ class InvoiceMessagingIT extends AbstractIntegrationTest {
     private RabbitTemplate rabbit;
     @Autowired
     private AmqpAdmin amqpAdmin;
+    @Autowired
+    private JdbcTemplate jdbc;
 
     private final Actor seller = new Actor(UUID.randomUUID(), Set.of(Role.SELLER));
     private final Actor admin = new Actor(UUID.randomUUID(), Set.of(Role.ADMIN));
@@ -122,7 +128,66 @@ class InvoiceMessagingIT extends AbstractIntegrationTest {
             }
         }
         assertThat(dead).as("dead-lettered message").isNotNull();
+        assertThat(dead.getMessageProperties().getHeaders()).as("permanent failures skip the retry tiers")
+                .doesNotContainKey(EventTopology.RETRY_COUNT_HEADER);
         assertThat(status(draft.getId())).isEqualTo(InvoiceStatus.DRAFT);
+    }
+
+    @Test
+    void consumerQueueHasTheThreeDelayedRetryTiers() {
+        for (Duration delay : EventTopology.DEFAULT_RETRY_DELAYS) {
+            assertThat(amqpAdmin.getQueueProperties(EventTopology.retryQueueName(FinancingEventsListener.QUEUE, delay)))
+                    .as("tier %s", delay).isNotNull();
+        }
+    }
+
+    /**
+     * Brokers that already hold the queue from the plain {@code consumerQueue} declaration must accept the new one:
+     * the main queue and its DLQ keep their exact arguments, and redeclaring them the old way is not refused.
+     */
+    @Test
+    void existingQueueAndDeadLetterQueueDeclarationsAreUnchanged() {
+        Declarables before = EventTopology.consumerQueue(FinancingEventsListener.QUEUE, "financing.disbursed", "financing.settled");
+        Map<String, Queue> after = new HashMap<>();
+        FinancingEventsListener.financingEventsQueue().getDeclarablesByType(Queue.class).forEach(q -> after.put(q.getName(), q));
+
+        for (Queue old : before.getDeclarablesByType(Queue.class)) {
+            assertThat(after).containsKey(old.getName());
+            assertThat(after.get(old.getName()).getArguments()).as(old.getName()).isEqualTo(old.getArguments());
+            assertThat(after.get(old.getName()).isDurable()).isEqualTo(old.isDurable());
+            assertThat(amqpAdmin.declareQueue(old)).as("broker accepts the old declaration of %s", old.getName())
+                    .isEqualTo(old.getName());
+        }
+    }
+
+    /**
+     * A message parked in the first tier (as after one failed attempt) comes back to the consumer only after the tier
+     * delay; a duplicate delivered directly in the meantime is applied once.
+     */
+    @Test
+    void messageWaitingInARetryTierReturnsAfterItsDelayAndIsAppliedOnce() throws Exception {
+        UUID id = listedInvoice().getId();
+        String disbursed = envelope("FinancingDisbursed", id);
+        UUID eventId = UUID.fromString(objectMapper.readTree(disbursed).path("eventId").asText());
+        String tier = EventTopology.retryQueueName(FinancingEventsListener.QUEUE, EventTopology.DEFAULT_RETRY_DELAYS.getFirst());
+        MessageProperties properties = new MessageProperties();
+        properties.setContentType(MessageProperties.CONTENT_TYPE_JSON);
+        properties.setMessageId(eventId.toString());
+        properties.setHeader(EventTopology.RETRY_COUNT_HEADER, 1);
+        Instant parked = Instant.now();
+        rabbit.send(EventTopology.RETRY_EXCHANGE, tier, new Message(disbursed.getBytes(StandardCharsets.UTF_8), properties));
+
+        Thread.sleep(3000);
+        assertThat(status(id)).as("still waiting in %s", tier).isEqualTo(InvoiceStatus.FINANCING_AVAILABLE);
+        await(() -> status(id) == InvoiceStatus.FINANCED);
+        assertThat(Duration.between(parked, Instant.now())).isGreaterThanOrEqualTo(Duration.ofSeconds(9));
+
+        send("financing.disbursed", disbursed);
+        Thread.sleep(1500);
+        assertThat(history.findByInvoiceIdOrderByOccurredAtAscIdAsc(id)).extracting(InvoiceStatusHistory::getToStatus)
+                .containsOnlyOnce(InvoiceStatus.FINANCED);
+        assertThat(jdbc.queryForObject("select count(*) from processed_events where consumer = ? and event_id = UUID_TO_BIN(?)",
+                Integer.class, FinancingEventsListener.CONSUMER, eventId.toString())).isEqualTo(1);
     }
 
     private Invoice listedInvoice() {

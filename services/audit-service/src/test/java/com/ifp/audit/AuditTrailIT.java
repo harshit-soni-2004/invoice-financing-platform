@@ -119,6 +119,8 @@ class AuditTrailIT extends AbstractIntegrationTest {
             }
         }
         assertThat(dead).isNotNull();
+        assertThat(dead.getMessageProperties().getHeaders()).as("permanent failures skip the retry tiers")
+                .doesNotContainKey(EventTopology.RETRY_COUNT_HEADER);
     }
 
     @Test

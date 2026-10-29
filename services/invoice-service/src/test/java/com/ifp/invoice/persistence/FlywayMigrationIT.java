@@ -35,7 +35,16 @@ class FlywayMigrationIT extends AbstractIntegrationTest {
         assertThat(ddlAuto).isEqualTo("validate");
         assertThat(jdbc.queryForList(
                 "SELECT version FROM flyway_schema_history WHERE success = 1 AND version IS NOT NULL ORDER BY installed_rank",
-                String.class)).containsExactly("1", "2");
+                String.class)).containsExactly("1", "2", "700");
+    }
+
+    @Test
+    void processedEventsAreIndexedForTheRetentionJob() {
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM information_schema.statistics
+                WHERE table_schema = DATABASE() AND table_name = 'processed_events'
+                  AND index_name = 'ix_processed_events_processed_at' AND column_name = 'processed_at'""",
+                Integer.class)).isEqualTo(1);
     }
 
     @Test
@@ -82,7 +91,7 @@ class FlywayMigrationIT extends AbstractIntegrationTest {
 
         MigrateResult first = flyway.migrate();
         assertThat(first.success).isTrue();
-        assertThat(first.migrationsExecuted).isEqualTo(3);
+        assertThat(first.migrationsExecuted).isEqualTo(4);
 
         JdbcTemplate seedJdbc = new JdbcTemplate(new org.springframework.jdbc.datasource.DriverManagerDataSource(
                 url, "root", mysql.getPassword()));

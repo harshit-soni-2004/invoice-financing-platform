@@ -31,12 +31,10 @@ spring:
       simple:
         # Failed messages go to the queue's dead-letter queue instead of looping.
         default-requeue-rejected: false
+        # No in-listener retry: the consumer queue has delayed retry tiers (10 s, 1 min, 10 min) before its DLQ,
+        # so a failing message never blocks a consumer thread while it waits.
         retry:
-          enabled: true
-          max-attempts: 4
-          initial-interval: 1s
-          multiplier: 2
-          max-interval: 10s
+          enabled: false
 
   security:
     oauth2:

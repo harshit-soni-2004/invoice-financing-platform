@@ -16,8 +16,8 @@ import java.util.UUID;
 
 /**
  * Stateless resource server with the same token contract as the other services (signature, issuer, audience, expiry
- * and RS256 configured through {@code spring.security.oauth2.resourceserver.jwt.*}). The only API lists the caller's
- * own notifications, so any authenticated user may call it and the owner always comes from the token subject.
+ * and RS256 configured through {@code spring.security.oauth2.resourceserver.jwt.*}). The API only lists and marks the
+ * caller's own notifications, so any authenticated user may call it and the owner always comes from the token subject.
  */
 @Configuration(proxyBeanMethods = false)
 public class SecurityConfig {

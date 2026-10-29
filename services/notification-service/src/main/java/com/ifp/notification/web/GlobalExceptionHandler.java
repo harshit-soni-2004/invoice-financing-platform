@@ -30,6 +30,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 "page must be 0 or more and size between 1 and 100"));
     }
 
+    @ExceptionHandler(NotificationNotFoundException.class)
+    ProblemDetail notFound(NotificationNotFoundException ex) {
+        return problem(HttpStatus.NOT_FOUND, "Notification not found", "NOTIFICATION_NOT_FOUND", ex.getMessage());
+    }
+
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     ProblemDetail typeMismatch(MethodArgumentTypeMismatchException ex) {
         return problem(HttpStatus.BAD_REQUEST, "Invalid request", "INVALID_PARAMETER", "Parameter '" + ex.getName() + "' is invalid");
