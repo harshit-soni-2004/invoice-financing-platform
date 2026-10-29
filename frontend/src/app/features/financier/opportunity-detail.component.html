@@ -1,0 +1,302 @@
+<section class="page">
+  <p class="back"><a routerLink="/financier">← Back to opportunities</a></p>
+  <ifp-financier-nav section="opportunities" />
+
+  @if (accessProblem(); as kind) {
+    <ifp-access-problem [kind]="kind" />
+  } @else if (opportunityState().kind === 'loading') {
+    <p class="muted" role="status">Loading the opportunity…</p>
+  } @else if (loadFailure(); as failure) {
+    <div class="card stack">
+      <h1>The opportunity could not be loaded</h1>
+      <div class="alert alert-danger" role="alert">{{ formatFailure(failure) }}</div>
+      <div class="cluster">
+        <button type="button" class="btn btn-secondary" (click)="refresh()">Try again</button>
+        <a class="btn btn-ghost" routerLink="/financier">Back to opportunities</a>
+      </div>
+    </div>
+  } @else {
+    @if (opportunity(); as opp) {
+      <header class="page-header">
+        <div>
+          <h1>
+            Invoice <span class="mono">{{ opp.invoiceNumber }}</span>
+          </h1>
+          <p class="subtitle">
+            {{ formatAmount(opp.amount, opp.currency) }} · due {{ formatDate(opp.dueDate) }} ({{ opp.daysToMaturity }}
+            {{ opp.daysToMaturity === 1 ? 'day' : 'days' }} left)
+          </p>
+        </div>
+        <button type="button" class="btn btn-secondary" (click)="refresh()" [disabled]="submitting() || withdrawing() !== null">
+          Refresh
+        </button>
+      </header>
+    } @else {
+      <div class="card stack closed">
+        <h1>This invoice is not open for offers</h1>
+        <p class="muted">
+          It may have been financed, withdrawn by the seller, or come too close to its due date. Any offers you made on it
+          are listed below.
+        </p>
+        <div class="cluster">
+          <a class="btn btn-secondary" routerLink="/financier">Back to opportunities</a>
+          <a class="btn btn-ghost" routerLink="/financier/agreements">View your agreements</a>
+        </div>
+      </div>
+    }
+
+    @if (notice(); as notice) {
+      @if (notice.tone === 'success') {
+        <div #noticeBox class="alert alert-success notice" role="status" tabindex="-1">{{ notice.message }}</div>
+      } @else {
+        <div #noticeBox [class]="'alert alert-' + notice.tone + ' notice'" role="alert" tabindex="-1">{{ notice.message }}</div>
+      }
+    }
+
+    <div class="layout">
+      <div class="stack">
+        @if (opportunity(); as opp) {
+          <div class="card stack">
+            <h2>Invoice</h2>
+            <dl class="details">
+              <div>
+                <dt>Buyer</dt>
+                <dd>{{ opp.buyerName }}</dd>
+              </div>
+              <div>
+                <dt>Invoice amount</dt>
+                <dd>{{ formatAmount(opp.amount, opp.currency) }}</dd>
+              </div>
+              <div>
+                <dt>Issue date</dt>
+                <dd>{{ formatDate(opp.issueDate) }}</dd>
+              </div>
+              <div>
+                <dt>Due date</dt>
+                <dd>{{ formatDate(opp.dueDate) }}</dd>
+              </div>
+              <div>
+                <dt>Days to maturity</dt>
+                <dd>{{ opp.daysToMaturity }}</dd>
+              </div>
+              <div>
+                <dt>Largest advance allowed</dt>
+                <dd>{{ formatAmount(opp.maxAdvanceAmount, opp.currency) }}</dd>
+              </div>
+            </dl>
+          </div>
+
+          <div class="card stack">
+            <h2>Make an offer</h2>
+            @if (offersState().kind === 'loading') {
+              <p class="muted" role="status">Checking your existing offers…</p>
+            } @else if (openOffer()) {
+              <p class="muted">
+                You already have an open offer on this invoice. Withdraw it if you want to offer different terms; you can
+                hold only one open offer per invoice.
+              </p>
+            } @else {
+              <p class="muted">
+                Choose your own terms. The full advance is paid to the seller; the fee is repaid with it, never deducted.
+                Amounts are in Indian rupees (INR).
+              </p>
+
+              @if (formError(); as message) {
+                <div #errorSummary class="alert alert-danger form-error" role="alert" tabindex="-1">{{ message }}</div>
+              }
+
+              <form class="stack" [formGroup]="form" (ngSubmit)="submit()" novalidate [attr.aria-busy]="submitting()">
+                <div class="form-grid">
+                  <div class="field">
+                    <label for="offer-advance">Advance (₹)</label>
+                    <input
+                      id="offer-advance"
+                      class="input"
+                      type="text"
+                      inputmode="decimal"
+                      formControlName="advanceAmount"
+                      autocomplete="off"
+                      [attr.aria-invalid]="error('advanceAmount') ? 'true' : null"
+                      [attr.aria-describedby]="describedBy('advanceAmount', 'offer-advance-hint')"
+                    />
+                    <p class="hint" id="offer-advance-hint">
+                      At most {{ formatAmount(opp.maxAdvanceAmount, opp.currency) }}, up to 2 decimal places.
+                    </p>
+                    @if (error('advanceAmount'); as message) {
+                      <p class="error" id="offer-advance-error">{{ message }}</p>
+                    }
+                  </div>
+
+                  <div class="field">
+                    <label for="offer-rate">Annual rate (%)</label>
+                    <input
+                      id="offer-rate"
+                      class="input"
+                      type="text"
+                      inputmode="decimal"
+                      formControlName="annualRate"
+                      autocomplete="off"
+                      [attr.aria-invalid]="error('annualRate') ? 'true' : null"
+                      [attr.aria-describedby]="describedBy('annualRate', 'offer-rate-hint')"
+                    />
+                    <p class="hint" id="offer-rate-hint">
+                      Per year, for example 12.5. More than 0% and at most {{ limits.maxAnnualRatePercent }}%.
+                    </p>
+                    @if (error('annualRate'); as message) {
+                      <p class="error" id="offer-rate-error">{{ message }}</p>
+                    }
+                  </div>
+
+                  <div class="field">
+                    <label for="offer-fee">Processing fee (₹) <span class="optional">(optional)</span></label>
+                    <input
+                      id="offer-fee"
+                      class="input"
+                      type="text"
+                      inputmode="decimal"
+                      formControlName="processingFee"
+                      autocomplete="off"
+                      [attr.aria-invalid]="error('processingFee') ? 'true' : null"
+                      [attr.aria-describedby]="describedBy('processingFee', 'offer-fee-hint')"
+                    />
+                    <p class="hint" id="offer-fee-hint">A flat fee, less than the advance. Leave empty for none.</p>
+                    @if (error('processingFee'); as message) {
+                      <p class="error" id="offer-fee-error">{{ message }}</p>
+                    }
+                  </div>
+
+                  <div class="field">
+                    <label for="offer-installments">Installments</label>
+                    <input
+                      id="offer-installments"
+                      class="input"
+                      type="text"
+                      inputmode="numeric"
+                      autocomplete="off"
+                      formControlName="installmentCount"
+                      [attr.aria-invalid]="error('installmentCount') ? 'true' : null"
+                      [attr.aria-describedby]="describedBy('installmentCount', 'offer-installments-hint')"
+                    />
+                    <p class="hint" id="offer-installments-hint">
+                      1 to {{ maxInstallments() }}. The last installment falls on the due date.
+                    </p>
+                    @if (error('installmentCount'); as message) {
+                      <p class="error" id="offer-installments-error">{{ message }}</p>
+                    }
+                  </div>
+
+                  <div class="field span-2">
+                    <label for="offer-expires">Offer expires</label>
+                    <input
+                      id="offer-expires"
+                      class="input"
+                      type="datetime-local"
+                      formControlName="expiresAt"
+                      [attr.aria-invalid]="error('expiresAt') ? 'true' : null"
+                      [attr.aria-describedby]="describedBy('expiresAt', 'offer-expires-hint')"
+                    />
+                    <p class="hint" id="offer-expires-hint">
+                      In your local time. Within {{ limits.maxOfferValidityDays }} days and before the due date starts.
+                    </p>
+                    @if (error('expiresAt'); as message) {
+                      <p class="error" id="offer-expires-error">{{ message }}</p>
+                    }
+                  </div>
+                </div>
+
+                <p class="estimate muted" aria-live="polite">
+                  @if (estimate(); as e) {
+                    If disbursed today: fee about {{ formatAmount(e.fee, e.currency) }}, total repayable about
+                    {{ formatAmount(e.total, e.currency) }}. The exact fee is fixed on the disbursement day.
+                  } @else {
+                    Enter the advance and rate to see an estimated fee.
+                  }
+                </p>
+
+                <div class="cluster form-actions">
+                  <button type="submit" class="btn btn-primary submit" [disabled]="submitting()">
+                    {{ submitting() ? 'Sending offer…' : 'Send offer' }}
+                  </button>
+                </div>
+              </form>
+            }
+          </div>
+        }
+      </div>
+
+      <div class="card stack side">
+        <div class="card-head">
+          <h2>Your offers on this invoice</h2>
+        </div>
+        @if (offersState().kind === 'loading') {
+          <p class="muted" role="status">Loading your offers…</p>
+        } @else if (offersState().kind === 'error') {
+          <div class="alert alert-danger stack" role="alert">
+            <p>Your offers could not be loaded. {{ offersErrorMessage() }}</p>
+            <div>
+              <button type="button" class="btn btn-secondary btn-sm" (click)="reloadOffers()">Try again</button>
+            </div>
+          </div>
+        } @else if (offers(); as offers) {
+          @if (offers.length === 0) {
+            <p class="muted">You have not made an offer on this invoice.</p>
+          } @else {
+            <ul class="offers">
+              @for (offer of offers; track offer.id) {
+                <li class="offer stack">
+                  <div class="cluster offer-head">
+                    <ifp-financier-badge [info]="offerStatusInfo[offer.status]" />
+                    <span class="muted">Sent {{ formatInstant(offer.createdAt) }}</span>
+                  </div>
+                  <dl class="terms">
+                    <div>
+                      <dt>Advance</dt>
+                      <dd>{{ formatAmount(offer.advanceAmount, offer.currency) }}</dd>
+                    </div>
+                    <div>
+                      <dt>Rate</dt>
+                      <dd>{{ formatRate(offer.annualRate) }}</dd>
+                    </div>
+                    <div>
+                      <dt>Processing fee</dt>
+                      <dd>{{ formatAmount(offer.processingFee, offer.currency) }}</dd>
+                    </div>
+                    <div>
+                      <dt>Installments</dt>
+                      <dd>{{ offer.installmentCount }}</dd>
+                    </div>
+                    <div class="wide">
+                      <dt>{{ offer.status === 'OFFERED' ? 'Expires' : 'Was valid until' }}</dt>
+                      <dd>{{ formatInstant(offer.expiresAt) }}</dd>
+                    </div>
+                  </dl>
+                  <p class="hint">{{ offerStatusInfo[offer.status].next }}</p>
+                  @if (offer.statusReason) {
+                    <p class="hint"><strong>Reason:</strong> {{ offer.statusReason }}</p>
+                  }
+                  @if (offer.status === 'OFFERED') {
+                    <div>
+                      <button
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        [disabled]="withdrawing() !== null"
+                        (click)="withdraw(offer)"
+                      >
+                        {{ withdrawing() === offer.id ? 'Withdrawing…' : 'Withdraw offer' }}
+                      </button>
+                    </div>
+                  }
+                  @if (offer.status === 'ACCEPTED') {
+                    <a routerLink="/financier/agreements" [queryParams]="{ status: 'PENDING_APPROVAL' }">
+                      Review the agreement awaiting your approval
+                    </a>
+                  }
+                </li>
+              }
+            </ul>
+          }
+        }
+      </div>
+    </div>
+  }
+</section>

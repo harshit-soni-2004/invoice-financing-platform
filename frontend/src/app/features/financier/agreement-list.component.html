@@ -1,0 +1,117 @@
+<section class="page">
+  <header class="page-header">
+    <div>
+      <h1>Your agreements</h1>
+      <p class="subtitle">Offers that sellers accepted. Approve them, disburse the advance and follow the repayments.</p>
+    </div>
+    <div class="cluster">
+      <button type="button" class="btn btn-secondary" (click)="refresh()" [disabled]="loading()">Refresh</button>
+    </div>
+  </header>
+
+  <ifp-financier-nav section="agreements" />
+
+  @if (accessProblem(); as kind) {
+    <ifp-access-problem [kind]="kind" />
+  } @else {
+    <div class="toolbar">
+      <div class="field filter">
+        <label for="agr-status-filter">Status</label>
+        <select #statusSelect id="agr-status-filter" class="select" (change)="filterBy(statusSelect.value)">
+          <option value="" [selected]="!statusFilter()">All statuses</option>
+          @for (status of statuses; track status) {
+            <option [value]="status" [selected]="status === statusFilter()">{{ statusInfo[status].label }}</option>
+          }
+        </select>
+      </div>
+      <p class="muted summary" aria-live="polite">
+        @if (loading()) {
+          Loading agreements…
+        } @else if (range(); as r) {
+          Showing {{ r.from }}–{{ r.to }} of {{ r.total }} {{ r.total === 1 ? 'agreement' : 'agreements' }}
+        }
+      </p>
+    </div>
+
+    @if (loading()) {
+      <div class="card placeholder" aria-hidden="true">
+        <div class="bar"></div>
+        <div class="bar"></div>
+        <div class="bar"></div>
+      </div>
+    } @else if (errorMessage(); as message) {
+      <div class="alert alert-danger stack" role="alert">
+        <p>Your agreements could not be loaded. {{ message }}</p>
+        <div>
+          <button type="button" class="btn btn-secondary btn-sm" (click)="refresh()">Try again</button>
+        </div>
+      </div>
+    } @else if (result(); as result) {
+      @if (result.content.length === 0) {
+        <div class="card stack empty">
+          @if (statusFilter(); as filter) {
+            <h2>No agreements with status “{{ statusInfo[filter].label }}”</h2>
+            <p class="muted">None of your agreements has this status right now.</p>
+            <div class="cluster">
+              <button type="button" class="btn btn-secondary" (click)="filterBy('')">Show all agreements</button>
+            </div>
+          } @else {
+            <h2>You have no agreements yet</h2>
+            <p class="muted">An agreement starts when a seller accepts one of your offers.</p>
+            <div class="cluster">
+              <a class="btn btn-primary" routerLink="/financier">Browse opportunities</a>
+            </div>
+          }
+        </div>
+      } @else {
+        <div class="table-wrap">
+          <table class="table">
+            <caption class="visually-hidden">Your agreements, newest first</caption>
+            <thead>
+              <tr>
+                <th scope="col">Agreement</th>
+                <th scope="col" class="num">Advance</th>
+                <th scope="col">Maturity</th>
+                <th scope="col">Status</th>
+                <th scope="col" class="num">Outstanding</th>
+                <th scope="col">Created</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (agreement of result.content; track agreement.id) {
+                <tr>
+                  <td data-label="Agreement">
+                    <a class="mono" [routerLink]="['/financier/agreements', agreement.id]">{{ shortId(agreement.id) }}</a>
+                  </td>
+                  <td data-label="Advance" class="num">{{ formatAmount(agreement.advanceAmount, agreement.currency) }}</td>
+                  <td data-label="Maturity">{{ formatDate(agreement.maturityDate) }}</td>
+                  <td data-label="Status"><ifp-financier-badge [info]="statusInfo[agreement.status]" /></td>
+                  <td data-label="Outstanding" class="num">
+                    {{ agreement.totalRepayable === null ? '—' : formatAmount(agreement.outstanding, agreement.currency) }}
+                  </td>
+                  <td data-label="Created">{{ formatInstant(agreement.createdAt) }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+
+        @if (result.totalPages > 1) {
+          <nav class="pagination cluster" aria-label="Agreement pages">
+            @if (result.page > 0) {
+              <a class="btn btn-secondary btn-sm" routerLink="." [queryParams]="pageLink(result.page - 1)" queryParamsHandling="merge">
+                Previous
+              </a>
+            }
+            <span class="muted">Page {{ result.page + 1 }} of {{ result.totalPages }}</span>
+            @if (result.page + 1 < result.totalPages) {
+              <a class="btn btn-secondary btn-sm" routerLink="." [queryParams]="pageLink(result.page + 1)" queryParamsHandling="merge">
+                Next
+              </a>
+            }
+          </nav>
+        }
+      }
+    }
+  }
+</section>

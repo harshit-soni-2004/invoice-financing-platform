@@ -1,0 +1,255 @@
+<section class="page">
+  <p class="back"><a routerLink="/financier/agreements">← Back to your agreements</a></p>
+  <ifp-financier-nav section="agreements" />
+
+  @if (accessProblem(); as kind) {
+    <ifp-access-problem [kind]="kind" />
+  } @else if (view().kind === 'loading') {
+    <p class="muted" role="status">Loading the agreement…</p>
+  } @else if (loadFailure(); as failure) {
+    <div class="card stack">
+      <h1>{{ failure.kind === 'not-found' ? 'Agreement not found' : 'The agreement could not be loaded' }}</h1>
+      <div class="alert alert-danger" role="alert">{{ formatFailure(failure) }}</div>
+      <div class="cluster">
+        @if (failure.kind !== 'not-found') {
+          <button type="button" class="btn btn-secondary" (click)="refresh()">Try again</button>
+        }
+        <a class="btn btn-ghost" routerLink="/financier/agreements">Back to your agreements</a>
+      </div>
+    </div>
+  } @else if (agreement(); as agreement) {
+    <header class="page-header">
+      <div>
+        <h1>
+          Agreement <span class="mono">{{ shortId(agreement.id) }}</span>
+        </h1>
+        <p class="subtitle cluster">
+          <ifp-financier-badge [info]="statusInfo[agreement.status]" />
+          <span>
+            {{ formatAmount(agreement.advanceAmount, agreement.currency) }} advance · matures
+            {{ formatDate(agreement.maturityDate) }}
+          </span>
+        </p>
+      </div>
+      <button type="button" class="btn btn-secondary" (click)="refresh()" [disabled]="acting() !== null">Refresh</button>
+    </header>
+
+    @if (notice(); as notice) {
+      @if (notice.tone === 'success') {
+        <div #noticeBox class="alert alert-success notice" role="status" tabindex="-1">{{ notice.message }}</div>
+      } @else {
+        <div #noticeBox [class]="'alert alert-' + notice.tone + ' notice'" role="alert" tabindex="-1">{{ notice.message }}</div>
+      }
+    }
+
+    <div class="layout">
+      <div class="stack">
+        <div class="card stack">
+          <h2>Terms</h2>
+          <dl class="details">
+            <div>
+              <dt>Invoice amount</dt>
+              <dd>{{ formatAmount(agreement.invoiceAmount, agreement.currency) }}</dd>
+            </div>
+            <div>
+              <dt>Advance</dt>
+              <dd>{{ formatAmount(agreement.advanceAmount, agreement.currency) }}</dd>
+            </div>
+            <div>
+              <dt>Annual rate</dt>
+              <dd>{{ formatRate(agreement.annualRate) }}</dd>
+            </div>
+            <div>
+              <dt>Processing fee</dt>
+              <dd>{{ formatAmount(agreement.processingFee, agreement.currency) }}</dd>
+            </div>
+            <div>
+              <dt>Installments</dt>
+              <dd>{{ agreement.installmentCount }}</dd>
+            </div>
+            <div>
+              <dt>Maturity date</dt>
+              <dd>{{ formatDate(agreement.maturityDate) }}</dd>
+            </div>
+            <div class="wide">
+              <dt>Invoice ID</dt>
+              <dd class="mono">{{ agreement.invoiceId }}</dd>
+            </div>
+          </dl>
+        </div>
+
+        @if (agreement.totalRepayable !== null) {
+          <div class="card stack">
+            <h2>Repayment</h2>
+            <dl class="summary-figures">
+              <div>
+                <dt>Fee (fixed at disbursement)</dt>
+                <dd>{{ agreement.feeAmount === null ? '—' : formatAmount(agreement.feeAmount, agreement.currency) }}</dd>
+              </div>
+              <div>
+                <dt>Total repayable</dt>
+                <dd>{{ formatAmount(agreement.totalRepayable, agreement.currency) }}</dd>
+              </div>
+              <div>
+                <dt>Repaid</dt>
+                <dd>{{ formatAmount(agreement.principalRepaid + agreement.feeRepaid, agreement.currency) }}</dd>
+              </div>
+              <div>
+                <dt>Outstanding</dt>
+                <dd>{{ formatAmount(agreement.outstanding, agreement.currency) }}</dd>
+              </div>
+              @if (agreement.overdue) {
+                <div class="danger">
+                  <dt>Overdue</dt>
+                  <dd>{{ formatAmount(agreement.overdueAmount ?? 0, agreement.currency) }}</dd>
+                </div>
+              }
+              @if (agreement.nextDueDate) {
+                <div>
+                  <dt>Next due</dt>
+                  <dd>{{ formatDate(agreement.nextDueDate) }}</dd>
+                </div>
+              }
+            </dl>
+
+            @if (schedule().kind === 'loading') {
+              <p class="muted" role="status">Loading the schedule…</p>
+            } @else if (scheduleError(); as message) {
+              <div class="alert alert-danger stack" role="alert">
+                <p>The repayment schedule could not be loaded. {{ message }}</p>
+                <div>
+                  <button type="button" class="btn btn-secondary btn-sm" (click)="reloadSchedule()">Try again</button>
+                </div>
+              </div>
+            } @else if (installments(); as installments) {
+              <div class="table-wrap">
+                <table class="table">
+                  <caption class="visually-hidden">Repayment schedule, oldest installment first</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col" class="num">#</th>
+                      <th scope="col">Due date</th>
+                      <th scope="col" class="num">Due</th>
+                      <th scope="col" class="num">Paid</th>
+                      <th scope="col" class="num">Remaining</th>
+                      <th scope="col">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (item of installments; track item.sequenceNo) {
+                      <tr [class.overdue-row]="item.status === 'OVERDUE'">
+                        <td data-label="#" class="num">{{ item.sequenceNo }}</td>
+                        <td data-label="Due date">{{ formatDate(item.dueDate) }}</td>
+                        <td data-label="Due" class="num">{{ formatAmount(item.totalDue, agreement.currency) }}</td>
+                        <td data-label="Paid" class="num">{{ formatAmount(item.principalPaid + item.feePaid, agreement.currency) }}</td>
+                        <td data-label="Remaining" class="num">{{ formatAmount(item.remaining, agreement.currency) }}</td>
+                        <td data-label="Status"><ifp-financier-badge [info]="installmentInfo[item.status]" /></td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            }
+          </div>
+        }
+      </div>
+
+      <div class="stack side">
+        <div class="card stack">
+          <h2>Status</h2>
+          <p><ifp-financier-badge [info]="statusInfo[agreement.status]" /></p>
+          <p class="muted">{{ statusInfo[agreement.status].next }}</p>
+          @if (agreement.statusReason) {
+            <p><strong>Reason:</strong> {{ agreement.statusReason }}</p>
+          }
+          <ol class="milestones">
+            @for (step of milestones(); track step[0]) {
+              <li>
+                <span>{{ step[0] }}</span>
+                <span class="muted">{{ formatInstant(step[1]) }}</span>
+              </li>
+            }
+          </ol>
+        </div>
+
+        <div class="card stack">
+          <h2>Actions</h2>
+          <div class="action">
+            <button
+              type="button"
+              class="btn"
+              [class.btn-primary]="canRun('approve')"
+              [class.btn-secondary]="!canRun('approve')"
+              [disabled]="!canRun('approve')"
+              aria-describedby="action-hint-approve"
+              (click)="approve()"
+            >
+              {{ acting() === 'approve' ? 'Approving…' : 'Approve agreement' }}
+            </button>
+            <p class="hint" id="action-hint-approve">While awaiting your approval. Commits you to disbursing the advance.</p>
+          </div>
+
+          <div class="action">
+            @if (confirmingDisburse()) {
+              <div class="alert alert-warning stack confirm" role="group" aria-labelledby="confirm-disburse-text">
+                <p id="confirm-disburse-text">
+                  Disburse {{ formatAmount(agreement.advanceAmount, agreement.currency) }} to the seller now? This starts the
+                  repayment schedule and cannot be undone. (Simulated: no money moves.)
+                </p>
+                <div class="cluster">
+                  <button
+                    #confirmButton
+                    type="button"
+                    class="btn btn-primary"
+                    [disabled]="acting() !== null"
+                    (click)="disburse()"
+                  >
+                    {{ acting() === 'disburse' ? 'Disbursing…' : 'Confirm disbursement' }}
+                  </button>
+                  <button type="button" class="btn btn-ghost" [disabled]="acting() !== null" (click)="cancelDisburse()">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            } @else {
+              <button
+                type="button"
+                class="btn"
+                [class.btn-primary]="canRun('disburse')"
+                [class.btn-secondary]="!canRun('disburse')"
+                [disabled]="!canRun('disburse')"
+                aria-describedby="action-hint-disburse"
+                (click)="askDisburse()"
+              >
+                Disburse advance
+              </button>
+            }
+            <p class="hint" id="action-hint-disburse">
+              After approval. Pays the full advance (simulated) and fixes the fee and repayment schedule.
+            </p>
+          </div>
+        </div>
+
+        @if (disbursement(); as d) {
+          <div class="card stack">
+            <h2>Disbursement</h2>
+            <dl class="details">
+              <div>
+                <dt>Amount</dt>
+                <dd>{{ formatAmount(d.amount, d.currency) }}</dd>
+              </div>
+              <div>
+                <dt>Disbursed</dt>
+                <dd>{{ formatInstant(d.disbursedAt) }}</dd>
+              </div>
+              <div class="wide">
+                <dt>Reference</dt>
+                <dd class="mono">{{ d.reference }}</dd>
+              </div>
+            </dl>
+          </div>
+        }
+      </div>
+    </div>
+  }
+</section>
