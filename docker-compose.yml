@@ -27,7 +27,7 @@ x-resource-server-env: &resource-server-env
 
 services:
   mysql:
-    image: mysql:8.4
+    image: mysql:26.7
     container_name: ifp-mysql
     command:
       - --default-time-zone=+00:00
