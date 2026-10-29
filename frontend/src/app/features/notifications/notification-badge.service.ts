@@ -1,89 +1,63 @@
-import { DOCUMENT, Injectable, InjectionToken, computed, inject, signal } from '@angular/core';
+import { Injectable, computed, inject, signal } from '@angular/core';
 
 import { AuthService } from '../../core/auth/auth.service';
-import { NOTIFICATION_PAGE_SIZE, NotificationApiService, NotificationItem } from './notification-api.service';
-
-/** Where the "last seen" marker is kept. It holds a timestamp per user ID, never tokens or message content. */
-export const NOTIFICATION_SEEN_STORAGE = new InjectionToken<Storage>('NOTIFICATION_SEEN_STORAGE', {
-  providedIn: 'root',
-  factory: () => inject(DOCUMENT).defaultView!.localStorage,
-});
-
-export const SEEN_KEY_PREFIX = 'ifp.notifications.seen.';
+import { NotificationApiService } from './notification-api.service';
 
 /** Background checks happen at most this often; opening the notifications page always checks. */
 const MIN_INTERVAL_MS = 30_000;
 
-/** Server instants may or may not carry fractional seconds, so they are compared as times, not as text. */
-function isAfter(instant: string, marker: string | null): boolean {
-  const time = Date.parse(instant);
-  const seen = marker === null ? Number.NaN : Date.parse(marker);
-  return Number.isNaN(seen) || (!Number.isNaN(time) && time > seen);
-}
+/** Larger counts are shown as "99+" so the header badge keeps its size. */
+const MAX_SHOWN = 99;
 
-/**
- * Counts notifications that arrived since the user last opened the notifications page in this browser.
- * notification-service has no read state, so this is a per-device "new" count rather than a server-side unread count.
- */
+/** The signed-in user's unread notification count, as notification-service reports it (shared across devices). */
 @Injectable({ providedIn: 'root' })
 export class NotificationBadgeService {
   private readonly api = inject(NotificationApiService);
   private readonly auth = inject(AuthService);
-  private readonly storage = inject(NOTIFICATION_SEEN_STORAGE);
 
-  private readonly state = signal<{ userId: string; count: number; more: boolean } | null>(null);
+  private readonly state = signal<{ userId: string; count: number } | null>(null);
   private lastCheck = 0;
   private inFlight: Promise<void> | null = null;
+  private generation = 0;
 
-  /** The badge text, or null when there is nothing new (or the count is unknown). */
-  readonly label = computed(() => {
+  /** The unread count for the signed-in user, or null while it is unknown (not checked yet, or the check failed). */
+  readonly count = computed(() => {
     const state = this.state();
     const user = this.auth.user();
-    if (!state || !user || state.userId !== user.id || state.count === 0) {
-      return null;
-    }
-    return state.more ? `${state.count}+` : String(state.count);
+    return state && user && state.userId === user.id ? state.count : null;
   });
 
-  /** Checks for new notifications unless a check ran recently. Failures leave the badge as it was. */
+  /** The badge text, or null when nothing is unread (or the count is unknown). */
+  readonly label = computed(() => {
+    const count = this.count();
+    if (count === null || count === 0) {
+      return null;
+    }
+    return count > MAX_SHOWN ? `${MAX_SHOWN}+` : String(count);
+  });
+
+  /** Checks the count unless a check ran recently. Failures leave the badge as it was. */
   refreshIfStale(): Promise<void> {
     return Date.now() - this.lastCheck < MIN_INTERVAL_MS ? (this.inFlight ?? Promise.resolve()) : this.refresh();
   }
 
   refresh(): Promise<void> {
-    this.inFlight ??= this.check().finally(() => (this.inFlight = null));
+    if (!this.inFlight) {
+      const check = this.check().finally(() => {
+        if (this.inFlight === check) {
+          this.inFlight = null;
+        }
+      });
+      this.inFlight = check;
+    }
     return this.inFlight;
   }
 
-  /** The user is looking at these notifications (newest first): nothing up to the newest one counts as new any more. */
-  markSeen(newestFirst: readonly NotificationItem[]): void {
-    const user = this.auth.user();
-    if (!user) {
-      return;
-    }
-    const newest = newestFirst[0]?.createdAt;
-    if (newest && isAfter(newest, this.seenMarker(user.id))) {
-      try {
-        this.storage.setItem(SEEN_KEY_PREFIX + user.id, newest);
-      } catch {
-        // Storage may be full or blocked; the badge then simply keeps counting.
-      }
-    }
-    this.state.set({ userId: user.id, count: 0, more: false });
-  }
-
-  /** Whether a notification arrived after the user last opened the page. */
-  isNew(item: NotificationItem): boolean {
-    const user = this.auth.user();
-    return !!user && isAfter(item.createdAt, this.seenMarker(user.id));
-  }
-
-  seenMarker(userId: string): string | null {
-    try {
-      return this.storage.getItem(SEEN_KEY_PREFIX + userId);
-    } catch {
-      return null;
-    }
+  /** After the user changed read state: a check already in flight may predate the change, so its answer is dropped. */
+  recount(): Promise<void> {
+    this.generation++;
+    this.inFlight = null;
+    return this.refresh();
   }
 
   private async check(): Promise<void> {
@@ -92,15 +66,13 @@ export class NotificationBadgeService {
       this.state.set(null);
       return;
     }
+    const generation = this.generation;
     this.lastCheck = Date.now();
     try {
-      const page = await this.api.list(0, NOTIFICATION_PAGE_SIZE);
-      if (this.auth.user()?.id !== user.id) {
-        return;
+      const count = await this.api.unreadCount();
+      if (generation === this.generation && this.auth.user()?.id === user.id) {
+        this.state.set({ userId: user.id, count });
       }
-      const seen = this.seenMarker(user.id);
-      const count = page.content.filter((item) => isAfter(item.createdAt, seen)).length;
-      this.state.set({ userId: user.id, count, more: count === page.content.length && page.totalElements > count });
     } catch {
       // A failed background check must not disturb the page; the next navigation tries again.
     }

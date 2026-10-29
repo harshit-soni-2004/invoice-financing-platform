@@ -3,18 +3,34 @@
     <div>
       <h1>Notifications</h1>
       <p class="subtitle">
-        Updates about your account, invoices and financing, newest first. "New" marks messages that arrived since you
-        last opened this page on this device.
+        Updates about your account, invoices and financing, newest first. Read state is kept with your account, so it is
+        the same on every device.
       </p>
     </div>
-    <button type="button" class="btn btn-secondary" (click)="refresh()" [disabled]="loading()">Refresh</button>
+    <div class="cluster header-actions">
+      <button type="button" class="btn btn-secondary" (click)="markAllRead()" [disabled]="!canMarkAll() || loading()">
+        {{ markingAll() ? 'Marking all as read…' : 'Mark all as read' }}
+      </button>
+      <button type="button" class="btn btn-secondary" (click)="refresh()" [disabled]="loading() || markingAll()">Refresh</button>
+    </div>
   </header>
+
+  @if (notice(); as notice) {
+    @if (notice.tone === 'success') {
+      <div #noticeBox class="alert alert-success notice" role="status" tabindex="-1">{{ notice.message }}</div>
+    } @else {
+      <div #noticeBox class="alert alert-danger notice" role="alert" tabindex="-1">{{ notice.message }}</div>
+    }
+  }
 
   <p class="muted summary" aria-live="polite">
     @if (loading()) {
       Loading notifications…
     } @else if (range(); as r) {
       Showing {{ r.from }}–{{ r.to }} of {{ r.total }} {{ r.total === 1 ? 'notification' : 'notifications' }}
+      @if (unreadTotal(); as unread) {
+        · {{ unread }} unread
+      }
     }
   </p>
 
@@ -31,41 +47,58 @@
         <button type="button" class="btn btn-secondary btn-sm" (click)="refresh()">Try again</button>
       </div>
     </div>
-  } @else if (loaded(); as state) {
-    @if (state.result.content.length === 0) {
+  } @else if (result(); as result) {
+    @if (result.content.length === 0) {
       <div class="card stack empty">
         <h2>No notifications yet</h2>
         <p class="muted">We will let you know here when something needs your attention.</p>
       </div>
     } @else {
       <ol class="items" aria-label="Notifications, newest first">
-        @for (item of state.result.content; track item.id) {
-          <li class="card item" [class.fresh]="state.fresh.has(item.id)">
+        @for (item of result.content; track item.id) {
+          <li class="card item" [class.fresh]="item.readAt === null" [attr.data-notification-id]="item.id" tabindex="-1">
             <div class="item-head">
               <span class="subject">{{ item.subject }}</span>
-              @if (state.fresh.has(item.id)) {
-                <span class="badge badge-primary">New</span>
+              @if (item.readAt === null) {
+                <span class="badge badge-primary">Unread</span>
               }
             </div>
-            <p class="meta muted">
-              <time [attr.datetime]="item.createdAt">{{ formatInstant(item.createdAt) }}</time>
-              <span aria-hidden="true">·</span>
-              <span>{{ delivery(item) }}</span>
-            </p>
+            <div class="item-foot">
+              <p class="meta muted">
+                <time [attr.datetime]="item.createdAt">{{ formatInstant(item.createdAt) }}</time>
+                <span aria-hidden="true">·</span>
+                <span>{{ delivery(item) }}</span>
+                @if (item.readAt; as readAt) {
+                  <span aria-hidden="true">·</span>
+                  <span>Read {{ formatInstant(readAt) }}</span>
+                }
+              </p>
+              @if (item.readAt === null) {
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-sm"
+                  [disabled]="isMarking(item) || markingAll()"
+                  [attr.aria-label]="'Mark as read: ' + item.subject"
+                  (click)="markRead(item)"
+                >
+                  {{ isMarking(item) ? 'Marking…' : 'Mark as read' }}
+                </button>
+              }
+            </div>
           </li>
         }
       </ol>
 
-      @if (state.result.totalPages > 1) {
+      @if (result.totalPages > 1) {
         <nav class="pagination cluster" aria-label="Notification pages">
-          @if (state.result.page > 0) {
-            <a class="btn btn-secondary btn-sm" routerLink="." [queryParams]="pageLink(state.result.page - 1)" queryParamsHandling="merge">
+          @if (result.page > 0) {
+            <a class="btn btn-secondary btn-sm" routerLink="." [queryParams]="pageLink(result.page - 1)" queryParamsHandling="merge">
               Previous
             </a>
           }
-          <span class="muted">Page {{ state.result.page + 1 }} of {{ state.result.totalPages }}</span>
-          @if (state.result.page + 1 < state.result.totalPages) {
-            <a class="btn btn-secondary btn-sm" routerLink="." [queryParams]="pageLink(state.result.page + 1)" queryParamsHandling="merge">
+          <span class="muted">Page {{ result.page + 1 }} of {{ result.totalPages }}</span>
+          @if (result.page + 1 < result.totalPages) {
+            <a class="btn btn-secondary btn-sm" routerLink="." [queryParams]="pageLink(result.page + 1)" queryParamsHandling="merge">
               Next
             </a>
           }

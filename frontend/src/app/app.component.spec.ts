@@ -86,7 +86,7 @@ describe('AppComponent', () => {
     expect(fixture.nativeElement.querySelector('a[href="/notifications"]')).toBeNull();
   });
 
-  it('links to notifications and shows the new count in the link and on the phone menu button', () => {
+  it('links to notifications and shows the unread count in the link and on the phone menu button', () => {
     user.set({ id: 'u', name: 'Asha Rao', role: 'SELLER' });
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
@@ -99,7 +99,7 @@ describe('AppComponent', () => {
 
     badgeLabel.set('3');
     fixture.detectChanges();
-    expect(link.querySelector('.nav-count')?.textContent?.trim()).toBe('3 new');
-    expect(el.querySelector('.menu-toggle')?.textContent).toContain('3 new notifications');
+    expect(link.querySelector('.nav-count')?.textContent?.trim()).toBe('3 unread');
+    expect(el.querySelector('.menu-toggle')?.textContent).toContain('3 unread notifications');
   });
 });

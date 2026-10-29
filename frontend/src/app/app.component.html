@@ -18,7 +18,7 @@
       <span class="visually-hidden">Menu</span>
       @if (notifications.label(); as count) {
         <span class="badge badge-primary nav-count" aria-hidden="true">{{ count }}</span>
-        <span class="visually-hidden">, {{ count }} new notifications</span>
+        <span class="visually-hidden">, {{ count }} unread notifications</span>
       }
     </button>
 
@@ -34,7 +34,7 @@
               >{{ link.label }}
               @if (link.path === notificationsPath) {
                 @if (notifications.label(); as count) {
-                  <span class="badge badge-primary nav-count">{{ count }}<span class="visually-hidden"> new</span></span>
+                  <span class="badge badge-primary nav-count">{{ count }}<span class="visually-hidden"> unread</span></span>
                 }
               }</a
             >
