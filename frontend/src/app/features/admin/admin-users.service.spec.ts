@@ -79,4 +79,33 @@ describe('AdminUsersService', () => {
     http.expectOne(`${URL}/id-1/activate`).flush({ code: 'ACCESS_DENIED' }, { status: 403, statusText: 'Forbidden' });
     expect(await failureOf(result)).toEqual({ kind: 'forbidden' });
   });
+
+  it('rejects an account with the reason and returns auth-service’s REJECTED view of it', async () => {
+    const result = api.reject('f0000000-0000-4000-8000-000000000001', 'Could not verify the company registration');
+    const request = http.expectOne(`${URL}/f0000000-0000-4000-8000-000000000001/reject`);
+    expect(request.request.method).toBe('POST');
+    expect(request.request.body).toEqual({ reason: 'Could not verify the company registration' });
+    request.flush(userFixture({ status: 'REJECTED' }));
+    expect((await result).status).toBe('REJECTED');
+  });
+
+  it('sends an empty body when no reason is given', async () => {
+    const result = api.reject('id-1', null);
+    const request = http.expectOne(`${URL}/id-1/reject`);
+    expect(request.request.body).toEqual({});
+    request.flush(userFixture({ status: 'REJECTED' }));
+    await result;
+  });
+
+  it('reports a rejection of an account that is no longer pending, and a rejected reason', async () => {
+    const conflict = api.reject('id-1', null);
+    http
+      .expectOne(`${URL}/id-1/reject`)
+      .flush({ code: 'USER_NOT_PENDING_APPROVAL', currentStatus: 'REJECTED' }, { status: 409, statusText: 'Conflict' });
+    expect(await failureOf(conflict)).toEqual({ kind: 'conflict', code: 'USER_NOT_PENDING_APPROVAL', currentStatus: 'REJECTED' });
+
+    const invalid = api.reject('id-1', 'x'.repeat(501));
+    http.expectOne(`${URL}/id-1/reject`).flush({ code: 'VALIDATION_FAILED' }, { status: 400, statusText: 'Bad Request' });
+    expect(await failureOf(invalid)).toEqual({ kind: 'invalid' });
+  });
 });

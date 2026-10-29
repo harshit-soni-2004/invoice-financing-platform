@@ -7,9 +7,12 @@ import { ApiError, Page, callApi, isObject, isText, parsePage } from '../../shar
 
 export const USER_PAGE_SIZE = 20;
 
-export type UserStatus = 'ACTIVE' | 'PENDING_APPROVAL' | 'DISABLED';
+export type UserStatus = 'ACTIVE' | 'PENDING_APPROVAL' | 'DISABLED' | 'REJECTED';
 
-const USER_STATUSES: readonly UserStatus[] = ['ACTIVE', 'PENDING_APPROVAL', 'DISABLED'];
+const USER_STATUSES: readonly UserStatus[] = ['ACTIVE', 'PENDING_APPROVAL', 'DISABLED', 'REJECTED'];
+
+/** auth-service's `RejectUserRequest` limit. */
+export const REJECT_USER_REASON_MAX = 500;
 
 /** auth-service's `UserResponse`. */
 export interface AdminUser {
@@ -26,8 +29,8 @@ export function userStatusOf(value: unknown): UserStatus | null {
 }
 
 /**
- * auth-service's administrator endpoints, through the gateway. auth-service offers listing and activation only: there
- * is no endpoint to decline or disable an account.
+ * auth-service's administrator endpoints, through the gateway: listing, activation and rejection of pending accounts.
+ * There is no endpoint to disable an account.
  */
 @Injectable({ providedIn: 'root' })
 export class AdminUsersService {
@@ -51,6 +54,19 @@ export class AdminUsersService {
   /** Approves a pending account. auth-service answers 409 `USER_NOT_PENDING_APPROVAL` if it is no longer pending. */
   async activate(id: string): Promise<AdminUser> {
     const user = parseUser(await callApi(this.http.post<unknown>(`${this.url}/${encodeURIComponent(id)}/activate`, null)));
+    if (!user) {
+      throw new ApiError({ kind: 'unexpected' });
+    }
+    return user;
+  }
+
+  /**
+   * Rejects a pending account for good; a rejected account can never sign in or be approved. The reason is optional.
+   * auth-service answers 409 `USER_NOT_PENDING_APPROVAL` if the account is no longer pending.
+   */
+  async reject(id: string, reason: string | null): Promise<AdminUser> {
+    const body = reason === null ? {} : { reason };
+    const user = parseUser(await callApi(this.http.post<unknown>(`${this.url}/${encodeURIComponent(id)}/reject`, body)));
     if (!user) {
       throw new ApiError({ kind: 'unexpected' });
     }

@@ -12,8 +12,8 @@
   <ifp-admin-nav />
 
   <p class="alert alert-info intro">
-    Approving an account lets the financier sign in and make offers. Declining an application is not available in the
-    platform yet.
+    Approving an account lets the financier sign in and make offers. Rejecting an application is final: the account can
+    never sign in or be approved later.
   </p>
 
   @if (notice(); as notice) {
@@ -78,15 +78,26 @@
                 </td>
                 <td data-label="Action" class="row-action">
                   @if (outcomeOf(user) === null) {
-                    <button
-                      type="button"
-                      class="btn btn-primary btn-sm"
-                      [disabled]="!canApprove(user)"
-                      [attr.aria-label]="'Approve ' + user.displayName"
-                      (click)="approve(user)"
-                    >
-                      {{ acting() === user.id ? 'Approving…' : 'Approve' }}
-                    </button>
+                    <div class="cluster row-buttons">
+                      <button
+                        type="button"
+                        class="btn btn-primary btn-sm"
+                        [disabled]="!canDecide(user)"
+                        [attr.aria-label]="'Approve ' + user.displayName"
+                        (click)="approve(user)"
+                      >
+                        {{ busyWith(user, 'approve') ? 'Approving…' : 'Approve' }}
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-danger btn-sm"
+                        [disabled]="!canDecide(user)"
+                        [attr.aria-label]="'Reject ' + user.displayName"
+                        (click)="openReject(user)"
+                      >
+                        {{ busyWith(user, 'reject') ? 'Rejecting…' : 'Reject' }}
+                      </button>
+                    </div>
                   } @else {
                     <span class="muted">No action</span>
                   }
@@ -114,4 +125,50 @@
       }
     }
   }
+
+  <dialog
+    #rejectDialog
+    class="dialog"
+    aria-labelledby="reject-title"
+    aria-describedby="reject-text"
+    (cancel)="onRejectDialogCancel($event)"
+    (close)="onRejectDialogClose()"
+  >
+    @if (rejectTarget(); as target) {
+      <div class="stack" [attr.aria-busy]="rejecting()">
+        <h2 id="reject-title">Reject {{ target.displayName }}?</h2>
+        <p id="reject-text">
+          The account for <span class="wrap">{{ target.email }}</span> will be rejected. It can never sign in or be
+          approved later. This cannot be undone.
+        </p>
+        <div class="field">
+          <label for="reject-user-reason">Reason <span class="muted">(optional)</span></label>
+          <textarea
+            id="reject-user-reason"
+            class="textarea"
+            rows="3"
+            [attr.maxlength]="rejectReasonMax"
+            [value]="rejectReason()"
+            (input)="onRejectReason($event)"
+            [disabled]="rejecting()"
+            aria-describedby="reject-user-reason-hint"
+          ></textarea>
+          <p class="hint" id="reject-user-reason-hint">
+            Recorded in the audit log. Up to {{ rejectReasonMax }} characters ({{ rejectReason().trim().length }} used).
+          </p>
+        </div>
+        @if (rejectError(); as message) {
+          <div #rejectAlert class="alert alert-danger" role="alert" tabindex="-1">{{ message }}</div>
+        }
+        <div class="cluster dialog-actions">
+          <button type="button" class="btn btn-ghost" autofocus (click)="closeReject()" [disabled]="rejecting()">
+            Keep pending
+          </button>
+          <button type="button" class="btn btn-danger" (click)="confirmReject()" [disabled]="rejecting()">
+            {{ rejecting() ? 'Rejecting…' : 'Reject application' }}
+          </button>
+        </div>
+      </div>
+    }
+  </dialog>
 </section>

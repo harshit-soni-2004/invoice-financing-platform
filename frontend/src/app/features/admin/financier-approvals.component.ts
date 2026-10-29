@@ -17,7 +17,7 @@ import { Router, RouterLink } from '@angular/router';
 import { ApiFailure, Page, commonFailureMessage, failureOf } from '../../shared/api-failure';
 import { formatInstant } from '../seller/invoice-format';
 import { AdminNavComponent } from './admin-nav.component';
-import { AdminUser, AdminUsersService, UserStatus, userStatusOf } from './admin-users.service';
+import { AdminUser, AdminUsersService, REJECT_USER_REASON_MAX, UserStatus, userStatusOf } from './admin-users.service';
 import { Notice, pageLink, pageParam } from './admin-shared';
 
 type ListState = { kind: 'loading' } | { kind: 'loaded'; result: Page<AdminUser> } | { kind: 'error'; message: string };
@@ -25,21 +25,27 @@ type ListState = { kind: 'loading' } | { kind: 'loaded'; result: Page<AdminUser>
 /** What happened to a row since the list was loaded, as reported by auth-service. */
 type Outcome = { kind: 'status'; status: UserStatus } | { kind: 'missing' };
 
+type Decision = 'approve' | 'reject';
+
 const STATUS_LABELS: Readonly<Record<UserStatus, { label: string; badge: string }>> = {
   ACTIVE: { label: 'Approved', badge: 'badge badge-success' },
   PENDING_APPROVAL: { label: 'Pending approval', badge: 'badge badge-warning' },
   DISABLED: { label: 'Disabled', badge: 'badge' },
+  REJECTED: { label: 'Rejected', badge: 'badge badge-danger' },
 };
 
 const SERVICE = 'account service';
 
-/** Financier accounts waiting for an administrator. Approving lets the financier sign in. */
+/** Failures the administrator can retry from the open rejection dialog; anything else closes it. */
+const RETRY_IN_DIALOG: ReadonlySet<ApiFailure['kind']> = new Set(['invalid', 'network', 'unavailable', 'rate-limited', 'unexpected']);
+
+/** Financier accounts waiting for an administrator. Approving lets the financier sign in; rejecting is final. */
 @Component({
   selector: 'ifp-financier-approvals',
   imports: [RouterLink, AdminNavComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './financier-approvals.component.html',
-  styleUrl: './admin.scss',
+  styleUrls: ['./admin.scss', '../seller/seller-dialog.scss'],
 })
 export class FinancierApprovalsComponent {
   private readonly api = inject(AdminUsersService);
@@ -56,7 +62,13 @@ export class FinancierApprovalsComponent {
   protected readonly state = signal<ListState>({ kind: 'loading' });
   protected readonly outcomes = signal<ReadonlyMap<string, Outcome>>(new Map());
   protected readonly acting = signal<string | null>(null);
+  protected readonly decision = signal<Decision | null>(null);
   protected readonly notice = signal<Notice | null>(null);
+  protected readonly rejectTarget = signal<AdminUser | null>(null);
+  protected readonly rejectReason = signal('');
+  protected readonly rejectError = signal<string | null>(null);
+  protected readonly rejectReasonMax = REJECT_USER_REASON_MAX;
+  protected readonly rejecting = computed(() => this.decision() === 'reject' && this.acting() !== null);
   protected readonly loading = computed(() => this.state().kind === 'loading');
 
   protected readonly result = computed(() => {
@@ -69,6 +81,8 @@ export class FinancierApprovalsComponent {
   });
 
   private readonly noticeBox = viewChild<ElementRef<HTMLElement>>('noticeBox');
+  private readonly rejectDialog = viewChild<ElementRef<HTMLDialogElement>>('rejectDialog');
+  private readonly rejectAlert = viewChild<ElementRef<HTMLElement>>('rejectAlert');
   private request = 0;
 
   constructor() {
@@ -95,15 +109,20 @@ export class FinancierApprovalsComponent {
     return STATUS_LABELS[outcome?.status ?? user.status];
   }
 
-  protected canApprove(user: AdminUser): boolean {
+  protected canDecide(user: AdminUser): boolean {
     return this.acting() === null && this.outcomeOf(user) === null;
   }
 
+  protected busyWith(user: AdminUser, decision: Decision): boolean {
+    return this.acting() === user.id && this.decision() === decision;
+  }
+
   protected async approve(user: AdminUser): Promise<void> {
-    if (!this.canApprove(user)) {
+    if (!this.canDecide(user)) {
       return;
     }
     this.acting.set(user.id);
+    this.decision.set('approve');
     this.notice.set(null);
     try {
       const updated = await this.api.activate(user.id);
@@ -114,13 +133,98 @@ export class FinancierApprovalsComponent {
           : { tone: 'warning', message: `${user.displayName} is now ${STATUS_LABELS[updated.status].label.toLowerCase()}.` },
       );
     } catch (error) {
-      this.handleFailure(user, failureOf(error));
+      this.handleFailure(user, failureOf(error), 'approve');
     } finally {
       this.acting.set(null);
+      this.decision.set(null);
     }
   }
 
-  private handleFailure(user: AdminUser, failure: ApiFailure): void {
+  protected openReject(user: AdminUser): void {
+    if (!this.canDecide(user)) {
+      return;
+    }
+    this.rejectTarget.set(user);
+    this.rejectReason.set('');
+    this.rejectError.set(null);
+    this.notice.set(null);
+    afterNextRender(() => this.rejectDialog()?.nativeElement.showModal(), { injector: this.injector });
+  }
+
+  protected closeReject(): void {
+    if (!this.rejecting()) {
+      this.rejectDialog()?.nativeElement.close();
+    }
+  }
+
+  /** Escape must not close the dialog while the request is in flight. */
+  protected onRejectDialogCancel(event: Event): void {
+    if (this.rejecting()) {
+      event.preventDefault();
+    }
+  }
+
+  protected onRejectDialogClose(): void {
+    this.rejectTarget.set(null);
+  }
+
+  protected onRejectReason(event: Event): void {
+    this.rejectReason.set((event.target as HTMLTextAreaElement).value);
+    this.rejectError.set(null);
+  }
+
+  protected async confirmReject(): Promise<void> {
+    const user = this.rejectTarget();
+    if (!user || this.acting() !== null) {
+      return;
+    }
+    const reason = this.rejectReason().trim();
+    if (reason.length > REJECT_USER_REASON_MAX) {
+      this.showRejectError(`Keep the reason to ${REJECT_USER_REASON_MAX} characters or fewer.`);
+      return;
+    }
+    this.acting.set(user.id);
+    this.decision.set('reject');
+    this.rejectError.set(null);
+    try {
+      const updated = await this.api.reject(user.id, reason === '' ? null : reason);
+      this.finishReject();
+      this.mark(user.id, { kind: 'status', status: updated.status });
+      this.showNotice(
+        updated.status === 'REJECTED'
+          ? { tone: 'success', message: `${user.displayName}'s application is rejected. The account can never sign in.` }
+          : { tone: 'warning', message: `${user.displayName} is now ${STATUS_LABELS[updated.status].label.toLowerCase()}.` },
+      );
+    } catch (error) {
+      const failure = failureOf(error);
+      if (RETRY_IN_DIALOG.has(failure.kind)) {
+        this.finishReject({ keepOpen: true });
+        this.showRejectError(
+          failure.kind === 'invalid'
+            ? `The reason was not accepted. Keep it to ${REJECT_USER_REASON_MAX} characters or fewer.`
+            : `${user.displayName} was not rejected. ${commonFailureMessage(failure, SERVICE)}`,
+        );
+        return;
+      }
+      this.finishReject();
+      this.handleFailure(user, failure, 'reject');
+    }
+  }
+
+  private finishReject(options: { keepOpen?: boolean } = {}): void {
+    this.acting.set(null);
+    this.decision.set(null);
+    if (!options.keepOpen) {
+      this.rejectDialog()?.nativeElement.close();
+    }
+  }
+
+  private showRejectError(message: string): void {
+    this.rejectError.set(message);
+    afterNextRender(() => this.rejectAlert()?.nativeElement.focus(), { injector: this.injector });
+  }
+
+  private handleFailure(user: AdminUser, failure: ApiFailure, decision: Decision): void {
     if (failure.kind === 'conflict' && failure.code === 'USER_NOT_PENDING_APPROVAL') {
       const status = userStatusOf(failure.currentStatus);
       if (status) {
@@ -136,7 +240,7 @@ export class FinancierApprovalsComponent {
       return;
     }
     if (failure.kind === 'forbidden') {
-      this.showNotice({ tone: 'danger', message: 'You do not have permission to approve accounts.' });
+      this.showNotice({ tone: 'danger', message: `You do not have permission to ${decision} accounts.` });
       return;
     }
     if (failure.kind === 'conflict') {
@@ -149,7 +253,7 @@ export class FinancierApprovalsComponent {
     }
     this.showNotice({
       tone: 'danger',
-      message: `${user.displayName} was not approved. ${commonFailureMessage(failure, SERVICE)}`,
+      message: `${user.displayName} was not ${decision === 'approve' ? 'approved' : 'rejected'}. ${commonFailureMessage(failure, SERVICE)}`,
     });
   }
 

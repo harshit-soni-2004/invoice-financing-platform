@@ -40,7 +40,8 @@ test.describe('admin console (mocked auth-service and gateway)', () => {
 
       await expect(page.getByRole('heading', { level: 1, name: 'Financier approvals' })).toBeVisible();
       await expect(page.getByText('2 accounts waiting for approval')).toBeVisible();
-      await expect(page.getByText('Declining an application is not available')).toBeVisible();
+      await expect(page.getByText('Rejecting an application is final')).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Reject Ravi Menon' })).toBeEnabled();
       const list = api.requests[0];
       expect(new URL(list.url()).searchParams.get('role')).toBe('FINANCIER');
       expect(new URL(list.url()).searchParams.get('status')).toBe('PENDING_APPROVAL');
@@ -83,6 +84,71 @@ test.describe('admin console (mocked auth-service and gateway)', () => {
       await expect(page.getByRole('row').filter({ hasText: 'Meera Iyer' })).toContainText('Pending approval');
       await expect(page.getByText('internal detail')).toHaveCount(0);
       await expectNoHorizontalOverflow(page);
+    });
+
+    test('an admin rejects a pending financier after confirming, with an optional reason', async ({ page }) => {
+      await mockAuth(page, admin);
+      const api = await mockAdminUsers(page, [
+        storedUser(),
+        storedUser({ id: 'f0000000-0000-4000-8000-000000000002', displayName: 'Meera Iyer', email: 'meera@example.test' }),
+      ]);
+      await page.goto('/admin/financiers');
+
+      // Backing out sends nothing.
+      await page.getByRole('button', { name: 'Reject Ravi Menon' }).click();
+      const dialog = page.getByRole('dialog', { name: 'Reject Ravi Menon?' });
+      await expect(dialog).toBeVisible();
+      await expect(dialog.getByRole('button', { name: 'Keep pending' })).toBeFocused();
+      await expectNoHorizontalOverflow(page);
+      await page.keyboard.press('Escape');
+      await expect(dialog).toBeHidden();
+      expect(api.requests.filter((r) => r.method() === 'POST')).toHaveLength(0);
+
+      await page.getByRole('button', { name: 'Reject Ravi Menon' }).click();
+      await dialog.getByLabel('Reason (optional)').fill('Company registration could not be verified');
+      api.setDelay(400);
+      await dialog.getByRole('button', { name: 'Reject application' }).click();
+      await expect(dialog.getByRole('button', { name: 'Rejecting…' })).toBeDisabled();
+      await expect(page.getByRole('status')).toContainText("Ravi Menon's application is rejected.");
+      api.setDelay(0);
+      await expect(dialog).toBeHidden();
+
+      const posts = api.requests.filter((r) => r.method() === 'POST');
+      expect(posts).toHaveLength(1);
+      expect(new URL(posts[0].url()).pathname).toBe('/api/admin/users/f0000000-0000-4000-8000-000000000001/reject');
+      expect(posts[0].postDataJSON()).toEqual({ reason: 'Company registration could not be verified' });
+      await expect(page.getByRole('row').filter({ hasText: 'Ravi Menon' })).toContainText('Rejected');
+      await expect(page.getByRole('button', { name: 'Reject Ravi Menon' })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Approve Ravi Menon' })).toHaveCount(0);
+
+      // A rejection refused because another administrator approved first shows the real status.
+      api.rows[1].status = 'ACTIVE';
+      await page.getByRole('button', { name: 'Reject Meera Iyer' }).click();
+      await page.getByRole('dialog', { name: 'Reject Meera Iyer?' }).getByRole('button', { name: 'Reject application' }).click();
+      await expect(page.getByRole('alert')).toContainText('Meera Iyer is no longer waiting for approval. It is now approved.');
+      await expect(page.getByRole('row').filter({ hasText: 'Meera Iyer' })).toContainText('Approved');
+      expect(api.requests.filter((r) => r.method() === 'POST').at(-1)?.postDataJSON()).toEqual({});
+    });
+
+    test('a rejection that fails in transit keeps the dialog open; 403 is explained', async ({ page }) => {
+      await mockAuth(page, admin);
+      const api = await mockAdminUsers(page, [storedUser()]);
+      await page.goto('/admin/financiers');
+
+      api.failNext('POST', 503);
+      await page.getByRole('button', { name: 'Reject Ravi Menon' }).click();
+      const dialog = page.getByRole('dialog', { name: 'Reject Ravi Menon?' });
+      await dialog.getByRole('button', { name: 'Reject application' }).click();
+      await expect(dialog.getByRole('alert')).toContainText('Ravi Menon was not rejected.');
+      await expect(dialog.getByRole('alert')).toContainText('temporarily unavailable');
+      await expect(page.getByText('internal detail')).toHaveCount(0);
+      await expect(page.getByRole('row').filter({ hasText: 'Ravi Menon' })).toContainText('Pending approval');
+
+      api.failNext('POST', 403, { status: 403, code: 'ACCESS_DENIED' });
+      await dialog.getByRole('button', { name: 'Reject application' }).click();
+      await expect(dialog).toBeHidden();
+      await expect(page.getByRole('alert')).toContainText('You do not have permission to reject accounts.');
+      await expect(page.getByRole('row').filter({ hasText: 'Ravi Menon' })).toContainText('Pending approval');
     });
 
     test('an empty queue and a failed load with retry', async ({ page }) => {

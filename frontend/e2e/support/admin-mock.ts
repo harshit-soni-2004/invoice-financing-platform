@@ -12,8 +12,11 @@ export interface MockApi<T> {
   rows: T[];
   /** Every request the app sent to this API, except CORS preflights. */
   requests: Request[];
-  /** Answers the next request with this method using the given status and body instead of the fake's behaviour. */
-  failNext(method: string, status: number, body?: Record<string, unknown>): void;
+  /**
+   * Answers the next request with this method (and, if given, this URL path) using the given status and body instead of
+   * the fake's behaviour.
+   */
+  failNext(method: string, status: number, body?: Record<string, unknown>, path?: string): void;
   setDelay(ms: number): void;
 }
 
@@ -24,7 +27,7 @@ interface Handler<T> {
 async function mockApi<T>(page: Page, pattern: RegExp, seed: T[], handle: Handler<T>): Promise<MockApi<T>> {
   const rows = [...seed];
   const requests: Request[] = [];
-  const failures: { method: string; status: number; body?: Record<string, unknown> }[] = [];
+  const failures: { method: string; status: number; body?: Record<string, unknown>; path?: string }[] = [];
   let delay = 0;
 
   await page.route(pattern, async (route: Route) => {
@@ -35,7 +38,8 @@ async function mockApi<T>(page: Page, pattern: RegExp, seed: T[], handle: Handle
     requests.push(request);
     let status: number;
     let body: unknown;
-    const failure = failures.findIndex((f) => f.method === request.method());
+    const path = new URL(request.url()).pathname;
+    const failure = failures.findIndex((f) => f.method === request.method() && (!f.path || f.path === path));
     if (!(await request.headerValue('authorization'))?.startsWith('Bearer mock-access-')) {
       [status, body] = [401, { status: 401, code: 'UNAUTHENTICATED' }];
     } else if (failure >= 0) {
@@ -53,7 +57,7 @@ async function mockApi<T>(page: Page, pattern: RegExp, seed: T[], handle: Handle
   return {
     rows,
     requests,
-    failNext: (method, status, body) => failures.push({ method, status, body }),
+    failNext: (method, status, body, path) => failures.push({ method, status, body, path }),
     setDelay: (ms) => (delay = ms),
   };
 }
@@ -75,7 +79,7 @@ export interface StoredUser {
   email: string;
   displayName: string;
   role: 'SELLER' | 'FINANCIER' | 'ADMIN';
-  status: 'ACTIVE' | 'PENDING_APPROVAL' | 'DISABLED';
+  status: 'ACTIVE' | 'PENDING_APPROVAL' | 'DISABLED' | 'REJECTED';
   createdAt: string;
 }
 
@@ -91,7 +95,7 @@ export function storedUser(overrides: Partial<StoredUser> = {}): StoredUser {
   };
 }
 
-/** auth-service's admin user endpoints: list with role/status filters, and activation of pending accounts. */
+/** auth-service's admin user endpoints: list with role/status filters, and activation or rejection of pending accounts. */
 export function mockAdminUsers(page: Page, seed: StoredUser[]): Promise<MockApi<StoredUser>> {
   return mockApi(page, /^http:\/\/localhost:8080\/api\/admin\/users([/?].*)?$/, seed, (request, url, users) => {
     const [, , , , id, action] = url.pathname.split('/');
@@ -104,14 +108,20 @@ export function mockAdminUsers(page: Page, seed: StoredUser[]): Promise<MockApi<
       return { status: 200, body: paged(url, matching) };
     }
     const user = users.find((u) => u.id === id);
-    if (request.method() === 'POST' && action === 'activate') {
+    if (request.method() === 'POST' && (action === 'activate' || action === 'reject')) {
       if (!user) {
         return { status: 404, body: { status: 404, code: 'USER_NOT_FOUND' } };
+      }
+      if (action === 'reject') {
+        const reason: unknown = request.postDataJSON()?.reason;
+        if (typeof reason === 'string' && reason.length > 500) {
+          return { status: 400, body: { status: 400, code: 'VALIDATION_FAILED' } };
+        }
       }
       if (user.status !== 'PENDING_APPROVAL') {
         return { status: 409, body: { status: 409, code: 'USER_NOT_PENDING_APPROVAL', currentStatus: user.status } };
       }
-      user.status = 'ACTIVE';
+      user.status = action === 'activate' ? 'ACTIVE' : 'REJECTED';
       return { status: 200, body: user };
     }
     return { status: 404, body: { status: 404, code: 'NOT_FOUND' } };
@@ -183,6 +193,7 @@ export interface StoredNotification {
   skipReason: string | null;
   createdAt: string;
   sentAt: string | null;
+  readAt: string | null;
 }
 
 export function storedNotification(overrides: Partial<StoredNotification> = {}): StoredNotification {
@@ -194,16 +205,39 @@ export function storedNotification(overrides: Partial<StoredNotification> = {}):
     skipReason: null,
     createdAt: '2026-10-28T09:00:00Z',
     sentAt: '2026-10-28T09:00:05Z',
+    readAt: null,
     ...overrides,
   };
 }
 
-/** notification-service's list of the caller's notifications, newest first. Register after mockAuth. */
+/**
+ * notification-service's endpoints for the caller's own notifications: the list (newest first), the unread count, and
+ * idempotent mark-one / mark-all read (the first read time is kept). Register after mockAuth.
+ */
 export function mockNotifications(page: Page, seed: StoredNotification[]): Promise<MockApi<StoredNotification>> {
-  return mockApi(page, /^http:\/\/localhost:8080\/api\/notifications([/?].*)?$/, seed, (request, url, rows) => {
-    if (request.method() !== 'GET' || url.pathname !== '/api/notifications') {
-      return { status: 404, body: { status: 404 } };
+  const copies = seed.map((row) => ({ ...row }));
+  return mockApi(page, /^http:\/\/localhost:8080\/api\/notifications([/?].*)?$/, copies, (request, url, rows) => {
+    const now = new Date().toISOString();
+    const [, , , id, action] = url.pathname.split('/');
+    if (request.method() === 'GET' && url.pathname === '/api/notifications') {
+      return { status: 200, body: paged(url, [...rows].sort((a, b) => b.createdAt.localeCompare(a.createdAt))) };
     }
-    return { status: 200, body: paged(url, [...rows].sort((a, b) => b.createdAt.localeCompare(a.createdAt))) };
+    if (request.method() === 'GET' && id === 'unread-count' && !action) {
+      return { status: 200, body: { unreadCount: rows.filter((n) => n.readAt === null).length } };
+    }
+    if (request.method() === 'POST' && id === 'read-all' && !action) {
+      const unread = rows.filter((n) => n.readAt === null);
+      unread.forEach((n) => (n.readAt = now));
+      return { status: 200, body: { markedRead: unread.length } };
+    }
+    if (request.method() === 'POST' && action === 'read') {
+      const row = rows.find((n) => n.id === id);
+      if (!row) {
+        return { status: 404, body: { status: 404, code: 'NOTIFICATION_NOT_FOUND' } };
+      }
+      row.readAt ??= now;
+      return { status: 200, body: row };
+    }
+    return { status: 404, body: { status: 404 } };
   });
 }
