@@ -412,6 +412,13 @@ The script also checks the negative paths:
 - **Notification read state:** notification-service stores no read/unread state and has no mark-as-read endpoint, so the app cannot mark notifications as read.
 - **Header "new" count:** the notification count in the app header is derived from a per-device `localStorage` timestamp of the newest notification the user has seen, not from server state. It does not sync across browsers or devices.
 
+### Known gaps (financier UI)
+
+- **No opportunity filters.** `GET /api/financing/opportunities` supports only sorting and paging, so the list offers nothing more.
+- **No reject or cancel agreement actions.** financing-service allows them, but the UI offers only approve and disburse for now.
+- **The financier-specific 403 message appears only for actions.** The core auth interceptor sends any `403` on a page load to the shared no-access page, so only refused actions (offer, withdraw, approve, disburse) explain that new financiers need an administrator's approval.
+- **The disbursement `Idempotency-Key` is kept in memory only.** A retry on the same page reuses it, but a full page reload creates a new key. That is safe because the reloaded page shows the agreement's current status and offers disbursement only while it is still approved.
+
 ## 9. Roadmap
 
 | Phase | Scope | Depends on |
@@ -421,7 +428,7 @@ The script also checks the negative paths:
 | 3 Auth & gateway ✅ | auth-service (Authorization Server, users, registration, RSA key management, token contract above), gateway routes/token validation/CORS/rate limit/correlation IDs, negative authz tests, repeatable end-to-end script. Resource-server config for financing/notification/audit lands with those services (Phases 4–5) | 1, 2 |
 | 4 Financing ✅ | Read model, offers, agreements, disbursement idempotency, schedules, repayments, settlement, concurrency tests, gateway route | 3 |
 | 5 Events ✅ | Outbox in auth/invoice/financing, consumers, notification & audit services, retries/DLQ, duplicate-delivery tests | 2–4 |
-| 6 Frontend (in progress) | Angular 21 seller/financier/admin workflows against real APIs (Angular 19 was planned; it is end-of-life with unpatched advisories). Done: app shell, themes, Authorization Code + PKCE sign-in, role guards and API token handling, seller/financier registration, seller invoices (list, create, details, draft edit, cancel, submit and list for financing with `If-Match`), seller financing (accept or reject offers; agreement, disbursement, schedule with penalties, and idempotent repayments), the admin console (invoice queue with buyer confirmation, verification and rejection with `If-Match`, financier approval, read-only audit log) and notifications for all roles with a per-device "new" count. Next: the financier workflow | 3–5 |
+| 6 Frontend (in progress) | Angular 21 seller/financier/admin workflows against real APIs (Angular 19 was planned; it is end-of-life with unpatched advisories). Done: app shell, themes, Authorization Code + PKCE sign-in, role guards and API token handling, seller/financier registration, seller invoices (list, create, details, draft edit, cancel, submit and list for financing with `If-Match`), seller financing (accept or reject offers; agreement, disbursement, schedule with penalties, and idempotent repayments), the admin console (invoice queue with buyer confirmation, verification and rejection with `If-Match`, financier approval, read-only audit log), notifications for all roles with a per-device "new" count, and the financier workflow (opportunities, offers, agreement approval, idempotent disbursement, repayment schedule) | 3–5 |
 | 7 Containers & CI ✅ | Dockerfiles (multi-stage, non-root, healthchecks), full Compose behind the `app` profile with health ordering and a one-shot dev signing-key volume, GitHub Actions (Maven verify, frontend checks, mocked and full-stack E2E, image build with Trivy, SBOMs and GHCR push), Dependabot | 1–6 (images cover the frontend as it stands) |
 | 8 Verification | End-to-end run, security pass, final docs | all |
 

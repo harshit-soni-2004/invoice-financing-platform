@@ -1,6 +1,6 @@
 import { Page, expect, test } from '@playwright/test';
 import { mockAuth } from './support/auth-mock';
-import { disbursedAgreement, mockFinancing, storedOffer } from './support/financing-mock';
+import { disbursedAgreement, mockFinancing, storedOffer } from './support/seller-financing-mock';
 import { mockInvoices, storedInvoice } from './support/invoice-mock';
 import { expectNoHorizontalOverflow, screenshot, setTheme } from './support/ui';
 

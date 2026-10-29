@@ -2,8 +2,6 @@ import { Routes } from '@angular/router';
 
 import { authGuard, guestGuard, roleGuard } from './core/auth/auth.guards';
 
-const workspace = () => import('./features/workspace/workspace.component').then((m) => m.WorkspaceComponent);
-
 export const routes: Routes = [
   {
     path: '',
@@ -56,10 +54,8 @@ export const routes: Routes = [
   },
   {
     path: 'financier',
-    title: 'Financier workspace · Invoice Financing',
     canActivate: [roleGuard('FINANCIER')],
-    data: { area: 'FINANCIER' },
-    loadComponent: workspace,
+    loadChildren: () => import('./features/financier/financier.routes').then((m) => m.FINANCIER_ROUTES),
   },
   {
     path: 'admin',

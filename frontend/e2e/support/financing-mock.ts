@@ -1,11 +1,26 @@
 import { Page, Request, Route } from '@playwright/test';
 
+/** Must match public/config.json. */
+const FINANCING_URL = 'http://localhost:8080/api/financing';
+
 const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Authorization, Content-Type, If-Match, Idempotency-Key',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
-  'Access-Control-Expose-Headers': 'ETag, Location, Idempotent-Replayed, Retry-After',
+  'Access-Control-Allow-Headers': 'Authorization, Content-Type, Idempotency-Key',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Expose-Headers': 'Location, Idempotent-Replayed, Retry-After',
 };
+
+export interface StoredOpportunity {
+  invoiceId: string;
+  invoiceNumber: string;
+  buyerName: string;
+  amount: number;
+  currency: string;
+  issueDate: string;
+  dueDate: string;
+  daysToMaturity: number;
+  maxAdvanceAmount: number;
+}
 
 export interface StoredOffer {
   id: string;
@@ -34,21 +49,6 @@ export interface StoredInstallment {
   feePaid: number;
   remaining: number;
   status: string;
-  penaltyAccrued: number;
-  penaltyPaid: number;
-  penaltyRemaining: number;
-  penaltyAccruedThrough: string | null;
-}
-
-export interface StoredRepayment {
-  id: string;
-  agreementId: string;
-  amount: number;
-  principalComponent: number;
-  feeComponent: number;
-  penaltyComponent: number;
-  currency: string;
-  receivedAt: string;
 }
 
 export interface StoredAgreement {
@@ -74,110 +74,74 @@ export interface StoredAgreement {
   disbursedAt: string | null;
   settledAt: string | null;
   createdAt: string;
-  penaltyAccrued: number;
-  penaltyRepaid: number;
   schedule: StoredInstallment[];
-  repayments: StoredRepayment[];
+  disbursement: Record<string, unknown> | null;
+}
+
+interface Failure {
+  method: string;
+  path: RegExp;
+  status: number;
+  body?: Record<string, unknown>;
+  headers?: Record<string, string>;
+  /** Carry out the request first, then answer with the failure (an answer lost on the way back). */
+  afterProcessing?: boolean;
 }
 
 export interface FinancingMock {
+  opportunities: StoredOpportunity[];
   offers: StoredOffer[];
   agreements: StoredAgreement[];
   /** Every request the app sent to /api/financing, except CORS preflights. */
   requests: Request[];
-  /** Answers the next request with this method and path suffix with the given status and body instead. */
-  failNext(method: string, pathSuffix: string, status: number, body?: Record<string, unknown>): void;
-  /** Processes the next repayment, then drops the connection, as if the response was lost on the way back. */
-  dropNextRepaymentResponse(): void;
+  /** Answers the next request with this method and a matching path with the failure instead of the fake's own behaviour. */
+  failNext(failure: Failure): void;
+  /** Delays every answer, to observe in-flight states. */
   setDelay(ms: number): void;
 }
 
-const cents = (value: number) => Math.round(value * 100);
-const money = (value: number) => cents(value) / 100;
+const FINANCIER_ID = '7d4c2f9e-0000-4000-8000-000000000001';
+const SELLER_ID = '5e1d0000-0000-4000-8000-000000000001';
 
-function outstanding(agreement: StoredAgreement): number {
-  return money(agreement.schedule.reduce((sum, i) => sum + i.remaining, 0));
+function isoDate(offsetDays: number): string {
+  const date = new Date();
+  date.setDate(date.getDate() + offsetDays);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
-function agreementResponse(agreement: StoredAgreement, detailed: boolean) {
-  const { schedule, repayments, ...rest } = agreement;
-  void repayments;
-  const overdueAmount = money(schedule.filter((i) => i.status === 'OVERDUE').reduce((sum, i) => sum + i.remaining, 0));
+function view(agreement: StoredAgreement, detail: boolean) {
+  const { schedule, disbursement: _disbursement, ...rest } = agreement;
+  const outstanding =
+    agreement.totalRepayable === null ? 0 : Math.round((agreement.totalRepayable - agreement.principalRepaid - agreement.feeRepaid) * 100) / 100;
+  const overdueAmount = schedule.filter((i) => i.status === 'OVERDUE').reduce((sum, i) => sum + i.remaining, 0);
   return {
     ...rest,
-    outstanding: outstanding(agreement),
-    principalOutstanding: money(agreement.advanceAmount - agreement.principalRepaid),
-    feeOutstanding: money((agreement.feeAmount ?? 0) - agreement.feeRepaid),
-    penaltyOutstanding: money(agreement.penaltyAccrued - agreement.penaltyRepaid),
-    overdue: detailed ? overdueAmount > 0 : null,
-    overdueAmount: detailed ? overdueAmount : null,
-    nextDueDate: detailed ? (schedule.find((i) => i.remaining > 0)?.dueDate ?? null) : null,
+    outstanding,
+    principalOutstanding: agreement.totalRepayable === null ? 0 : agreement.advanceAmount - agreement.principalRepaid,
+    feeOutstanding: agreement.feeAmount === null ? 0 : agreement.feeAmount - agreement.feeRepaid,
+    overdue: detail ? overdueAmount > 0 : null,
+    overdueAmount: detail ? overdueAmount : null,
+    nextDueDate: detail ? (schedule.find((i) => i.remaining > 0)?.dueDate ?? null) : null,
   };
-}
-
-/** Oldest installment first; penalty, then fee, then principal, as RepaymentPlan.allocate. */
-function applyRepayment(agreement: StoredAgreement, amount: number): StoredRepayment {
-  let left = cents(amount);
-  const parts = { principal: 0, fee: 0, penalty: 0 };
-  for (const i of agreement.schedule) {
-    const penalty = Math.min(left, cents(i.penaltyRemaining));
-    left -= penalty;
-    const fee = Math.min(left, cents(i.feeDue - i.feePaid));
-    left -= fee;
-    const principal = Math.min(left, cents(i.principalDue - i.principalPaid));
-    left -= principal;
-    i.penaltyPaid = money(i.penaltyPaid + penalty / 100);
-    i.penaltyRemaining = money(i.penaltyRemaining - penalty / 100);
-    i.feePaid = money(i.feePaid + fee / 100);
-    i.principalPaid = money(i.principalPaid + principal / 100);
-    i.remaining = money(i.remaining - (penalty + fee + principal) / 100);
-    if (i.remaining === 0) {
-      i.status = 'PAID';
-    } else if (penalty + fee + principal > 0 && i.status !== 'OVERDUE') {
-      i.status = 'PARTIALLY_PAID';
-    }
-    parts.penalty += penalty;
-    parts.fee += fee;
-    parts.principal += principal;
-  }
-  agreement.principalRepaid = money(agreement.principalRepaid + parts.principal / 100);
-  agreement.feeRepaid = money(agreement.feeRepaid + parts.fee / 100);
-  agreement.penaltyRepaid = money(agreement.penaltyRepaid + parts.penalty / 100);
-  const now = new Date().toISOString();
-  agreement.status = outstanding(agreement) === 0 ? 'SETTLED' : 'REPAYMENT_IN_PROGRESS';
-  if (agreement.status === 'SETTLED') {
-    agreement.settledAt = now;
-  }
-  const repayment: StoredRepayment = {
-    id: `r0000000-0000-4000-8000-${String(agreement.repayments.length + 1).padStart(12, '0')}`,
-    agreementId: agreement.id,
-    amount: money(amount),
-    principalComponent: parts.principal / 100,
-    feeComponent: parts.fee / 100,
-    penaltyComponent: parts.penalty / 100,
-    currency: 'INR',
-    receivedAt: now,
-  };
-  agreement.repayments.push(repayment);
-  return repayment;
 }
 
 /**
- * A small stand-in for financing-service behind the gateway, for one seller: offers with the seller's accept/reject
- * transitions (accepting creates a PENDING_APPROVAL agreement and closes competing offers), agreement reads, and
- * idempotent repayments keyed by (Idempotency-Key, agreement, amount) like IdempotentExecutor. Roles are not checked.
+ * A small stand-in for financing-service behind the gateway, for one financier: opportunities, offers (one open offer
+ * per invoice, advance cap), agreements with the approve and disburse steps, and Idempotency-Key replays on disburse.
+ * financing-service sends no ETags, so neither does this. Register it after mockAuth so it takes precedence.
  */
 export async function mockFinancing(
   page: Page,
-  seed: { offers?: StoredOffer[]; agreements?: StoredAgreement[] } = {},
+  seed: { opportunities?: StoredOpportunity[]; offers?: StoredOffer[]; agreements?: StoredAgreement[] } = {},
 ): Promise<FinancingMock> {
+  const opportunities = [...(seed.opportunities ?? [])];
   const offers = [...(seed.offers ?? [])];
   const agreements = [...(seed.agreements ?? [])];
   const requests: Request[] = [];
-  const failures: { method: string; suffix: string; status: number; body?: Record<string, unknown> }[] = [];
-  const idempotency = new Map<string, { hash: string; repaymentId: string }>();
-  let dropNextRepayment = false;
+  const failures: Failure[] = [];
+  const idempotency = new Map<string, string>();
   let delay = 0;
+  let sequence = 0;
 
   const reply = async (route: Route, status: number, body: unknown, headers: Record<string, string> = {}) => {
     if (delay > 0) {
@@ -186,16 +150,154 @@ export async function mockFinancing(
     await route.fulfill({ status, headers: { ...CORS, ...headers }, json: body });
   };
   const problem = (status: number, code: string, extra: Record<string, unknown> = {}) => ({ status, code, detail: code, ...extra });
-  const pageOf = <T>(content: T[], url: URL) => {
+  const page0 = <T>(items: T[], url: URL) => {
     const number = Number(url.searchParams.get('page') ?? 0);
     const size = Number(url.searchParams.get('size') ?? 20);
     return {
-      content: content.slice(number * size, number * size + size),
+      content: items.slice(number * size, number * size + size),
       page: number,
       size,
-      totalElements: content.length,
-      totalPages: Math.ceil(content.length / size),
+      totalElements: items.length,
+      totalPages: Math.ceil(items.length / size),
     };
+  };
+
+  /** Runs the fake's own behaviour and returns the answer, without sending it. */
+  const handle = async (request: Request, url: URL): Promise<[number, unknown, Record<string, string>?]> => {
+    const parts = url.pathname.split('/').slice(3); // ['opportunities', id] | ['offers', id, 'withdraw'] | ...
+    const [resource, id, action] = parts;
+    const method = request.method();
+
+    if (resource === 'opportunities' && method === 'GET') {
+      if (!id) {
+        const [field, direction] = (url.searchParams.get('sort') ?? 'dueDate,asc').split(',');
+        const key = field as keyof StoredOpportunity;
+        const sorted = [...opportunities].sort((a, b) => {
+          const order = String(a[key]).localeCompare(String(b[key]), undefined, { numeric: true });
+          return direction === 'desc' ? -order : order;
+        });
+        return [200, page0(sorted, url)];
+      }
+      const found = opportunities.find((o) => o.invoiceId === id);
+      return found ? [200, found] : [404, problem(404, 'INVOICE_NOT_FOUND')];
+    }
+
+    if (resource === 'offers') {
+      if (method === 'GET' && !id) {
+        const invoiceId = url.searchParams.get('invoiceId');
+        const mine = offers.filter((o) => !invoiceId || o.invoiceId === invoiceId).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        return [200, page0(mine, url)];
+      }
+      if (method === 'POST' && !id) {
+        const body = request.postDataJSON() as Record<string, unknown>;
+        const opportunity = opportunities.find((o) => o.invoiceId === body['invoiceId']);
+        if (!opportunity) {
+          return [404, problem(404, 'INVOICE_NOT_FOUND')];
+        }
+        if (Number(body['advanceAmount']) > opportunity.maxAdvanceAmount) {
+          return [422, { ...problem(422, 'ADVANCE_TOO_HIGH'), detail: `advanceAmount may be at most ${opportunity.maxAdvanceAmount.toFixed(2)} for this invoice` }];
+        }
+        if (offers.some((o) => o.invoiceId === opportunity.invoiceId && o.status === 'OFFERED')) {
+          return [409, problem(409, 'DUPLICATE_OPEN_OFFER')];
+        }
+        const offer: StoredOffer = {
+          id: `f1000000-0000-4000-8000-${String(++sequence).padStart(12, '0')}`,
+          invoiceId: opportunity.invoiceId,
+          sellerId: SELLER_ID,
+          financierId: FINANCIER_ID,
+          advanceAmount: Number(body['advanceAmount']),
+          annualRate: Number(body['annualRate']),
+          processingFee: Number(body['processingFee'] ?? 0),
+          installmentCount: Number(body['installmentCount']),
+          currency: 'INR',
+          expiresAt: String(body['expiresAt']),
+          status: 'OFFERED',
+          statusReason: null,
+          decidedAt: null,
+          createdAt: new Date().toISOString(),
+        };
+        offers.push(offer);
+        return [201, offer, { Location: `${FINANCING_URL}/offers/${offer.id}` }];
+      }
+      const offer = offers.find((o) => o.id === id);
+      if (method === 'POST' && offer && action === 'withdraw') {
+        if (offer.status !== 'OFFERED') {
+          return [409, problem(409, 'INVALID_STATUS_TRANSITION', { currentStatus: offer.status, requestedStatus: 'WITHDRAWN' })];
+        }
+        Object.assign(offer, { status: 'WITHDRAWN', decidedAt: new Date().toISOString() });
+        return [200, offer];
+      }
+      return [404, problem(404, 'OFFER_NOT_FOUND')];
+    }
+
+    if (resource === 'agreements') {
+      if (method === 'GET' && !id) {
+        const status = url.searchParams.get('status');
+        const mine = agreements.filter((a) => !status || a.status === status).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        return [200, { ...page0(mine, url), content: page0(mine, url).content.map((a) => view(a, false)) }];
+      }
+      const agreement = agreements.find((a) => a.id === id);
+      if (!agreement) {
+        return [404, problem(404, 'AGREEMENT_NOT_FOUND')];
+      }
+      if (method === 'GET' && !action) {
+        return [200, view(agreement, true)];
+      }
+      if (method === 'GET' && action === 'schedule') {
+        return [200, agreement.schedule];
+      }
+      if (method === 'GET' && action === 'disbursement') {
+        return agreement.disbursement ? [200, agreement.disbursement] : [404, problem(404, 'DISBURSEMENT_NOT_FOUND')];
+      }
+      if (method === 'POST' && action === 'approve') {
+        if (agreement.status !== 'PENDING_APPROVAL') {
+          return [409, problem(409, 'INVALID_STATUS_TRANSITION', { currentStatus: agreement.status, requestedStatus: 'APPROVED' })];
+        }
+        Object.assign(agreement, { status: 'APPROVED', approvedAt: new Date().toISOString() });
+        return [200, view(agreement, false)];
+      }
+      if (method === 'POST' && action === 'disburse') {
+        const key = (await request.headerValue('idempotency-key'))?.trim() ?? '';
+        if (!/^[A-Za-z0-9_-]{8,100}$/.test(key)) {
+          return [400, problem(400, key ? 'IDEMPOTENCY_KEY_INVALID' : 'IDEMPOTENCY_KEY_REQUIRED')];
+        }
+        const previous = idempotency.get(key);
+        if (previous !== undefined) {
+          if (previous !== agreement.id) {
+            return [409, problem(409, 'IDEMPOTENCY_KEY_REUSED')];
+          }
+          return [200, agreement.disbursement, { 'Idempotent-Replayed': 'true' }];
+        }
+        if (agreement.status !== 'APPROVED') {
+          return [409, problem(409, 'INVALID_STATUS_TRANSITION', { currentStatus: agreement.status, requestedStatus: 'DISBURSED' })];
+        }
+        const now = new Date().toISOString();
+        const fee = Math.round(((agreement.advanceAmount * agreement.annualRate * 60) / 365) * 100) / 100 + agreement.processingFee;
+        const n = agreement.installmentCount;
+        const principalPart = Math.floor((agreement.advanceAmount / n) * 100) / 100;
+        const feePart = Math.floor((fee / n) * 100) / 100;
+        agreement.schedule = Array.from({ length: n }, (_, i) => {
+          const last = i === n - 1;
+          const principalDue = last ? Math.round((agreement.advanceAmount - principalPart * (n - 1)) * 100) / 100 : principalPart;
+          const feeDue = last ? Math.round((fee - feePart * (n - 1)) * 100) / 100 : feePart;
+          const totalDue = Math.round((principalDue + feeDue) * 100) / 100;
+          return { sequenceNo: i + 1, dueDate: isoDate(Math.ceil((60 * (i + 1)) / n)), principalDue, feeDue, totalDue, principalPaid: 0, feePaid: 0, remaining: totalDue, status: 'PENDING' };
+        });
+        agreement.disbursement = {
+          id: `d1000000-0000-4000-8000-${String(++sequence).padStart(12, '0')}`,
+          agreementId: agreement.id,
+          amount: agreement.advanceAmount,
+          currency: 'INR',
+          status: 'SIMULATED',
+          reference: `SIM-${String(sequence).padStart(6, '0')}`,
+          disbursedAt: now,
+        };
+        Object.assign(agreement, { status: 'DISBURSED', disbursedAt: now, feeAmount: fee, totalRepayable: Math.round((agreement.advanceAmount + fee) * 100) / 100 });
+        idempotency.set(key, agreement.id);
+        return [201, agreement.disbursement, { 'Idempotent-Replayed': 'false' }];
+      }
+    }
+    return [404, problem(404, 'NOT_FOUND')];
   };
 
   const handler = async (route: Route) => {
@@ -208,245 +310,91 @@ export async function mockFinancing(
       return reply(route, 401, problem(401, 'UNAUTHENTICATED'));
     }
     const url = new URL(request.url());
-    const path = url.pathname.replace('/api/financing', '');
-    const failure = failures.findIndex((f) => f.method === request.method() && path.endsWith(f.suffix));
-    if (failure >= 0) {
-      const [next] = failures.splice(failure, 1);
-      return reply(route, next.status, next.body ?? problem(next.status, 'FAILED'));
+    const index = failures.findIndex((f) => f.method === request.method() && f.path.test(url.pathname));
+    if (index >= 0) {
+      const [failure] = failures.splice(index, 1);
+      if (failure.afterProcessing) {
+        await handle(request, url);
+      }
+      return reply(route, failure.status, failure.body ?? problem(failure.status, 'FAILED'), failure.headers);
     }
-    const [, resource, id, action] = path.split('/');
-
-    if (resource === 'offers' && request.method() === 'GET' && !id) {
-      const invoiceId = url.searchParams.get('invoiceId');
-      const matching = offers.filter((o) => !invoiceId || o.invoiceId === invoiceId).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-      return reply(route, 200, pageOf(matching, url));
-    }
-    if (resource === 'offers' && request.method() === 'POST' && id && (action === 'accept' || action === 'reject')) {
-      const offer = offers.find((o) => o.id === id);
-      if (!offer) {
-        return reply(route, 404, problem(404, 'OFFER_NOT_FOUND'));
-      }
-      const target = action === 'accept' ? 'ACCEPTED' : 'REJECTED';
-      if (offer.status !== 'OFFERED') {
-        return reply(route, 409, problem(409, 'INVALID_STATUS_TRANSITION', { currentStatus: offer.status, requestedStatus: target }));
-      }
-      if (Date.parse(offer.expiresAt) <= Date.now()) {
-        return reply(route, 409, problem(409, 'OFFER_EXPIRED'));
-      }
-      const now = new Date().toISOString();
-      if (action === 'reject') {
-        const body = request.postData() ? (request.postDataJSON() as { reason?: string } | null) : null;
-        Object.assign(offer, { status: 'REJECTED', statusReason: body?.reason?.trim() || null, decidedAt: now });
-        return reply(route, 200, offer);
-      }
-      Object.assign(offer, { status: 'ACCEPTED', decidedAt: now });
-      for (const other of offers.filter((o) => o.invoiceId === offer.invoiceId && o.status === 'OFFERED')) {
-        Object.assign(other, { status: 'CLOSED', statusReason: 'Another offer for this invoice was accepted', decidedAt: now });
-      }
-      const agreement: StoredAgreement = {
-        id: `e0000000-0000-4000-8000-${String(agreements.length + 1).padStart(12, '0')}`,
-        offerId: offer.id,
-        invoiceId: offer.invoiceId,
-        sellerId: offer.sellerId,
-        financierId: offer.financierId,
-        invoiceAmount: 340000,
-        advanceAmount: offer.advanceAmount,
-        annualRate: offer.annualRate,
-        processingFee: offer.processingFee,
-        installmentCount: offer.installmentCount,
-        currency: 'INR',
-        maturityDate: '2026-12-15',
-        status: 'PENDING_APPROVAL',
-        statusReason: null,
-        feeAmount: null,
-        totalRepayable: null,
-        principalRepaid: 0,
-        feeRepaid: 0,
-        approvedAt: null,
-        disbursedAt: null,
-        settledAt: null,
-        createdAt: now,
-        penaltyAccrued: 0,
-        penaltyRepaid: 0,
-        schedule: [],
-        repayments: [],
-      };
-      agreements.push(agreement);
-      return reply(route, 201, agreementResponse(agreement, false));
-    }
-
-    if (resource === 'agreements') {
-      if (request.method() === 'GET' && !id) {
-        const sorted = [...agreements].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-        return reply(route, 200, pageOf(sorted.map((a) => agreementResponse(a, false)), url));
-      }
-      const agreement = agreements.find((a) => a.id === id);
-      if (!agreement) {
-        return reply(route, 404, problem(404, 'AGREEMENT_NOT_FOUND'));
-      }
-      if (request.method() === 'GET' && !action) {
-        return reply(route, 200, agreementResponse(agreement, true));
-      }
-      if (request.method() === 'GET' && action === 'disbursement') {
-        if (!agreement.disbursedAt) {
-          return reply(route, 404, problem(404, 'DISBURSEMENT_NOT_FOUND'));
-        }
-        return reply(route, 200, {
-          id: 'd1000000-0000-4000-8000-000000000001',
-          agreementId: agreement.id,
-          amount: agreement.advanceAmount,
-          currency: 'INR',
-          status: 'SIMULATED_COMPLETED',
-          reference: 'SIM-0011223344556677',
-          disbursedAt: agreement.disbursedAt,
-        });
-      }
-      if (request.method() === 'GET' && action === 'schedule') {
-        return reply(route, 200, agreement.schedule);
-      }
-      if (request.method() === 'GET' && action === 'repayments') {
-        return reply(route, 200, agreement.repayments);
-      }
-      if (request.method() === 'POST' && action === 'repayments') {
-        const key = (await request.headerValue('idempotency-key'))?.trim() ?? '';
-        if (!key) {
-          return reply(route, 400, problem(400, 'IDEMPOTENCY_KEY_REQUIRED'));
-        }
-        if (!/^[A-Za-z0-9_-]{8,100}$/.test(key)) {
-          return reply(route, 400, problem(400, 'IDEMPOTENCY_KEY_INVALID'));
-        }
-        const body = request.postDataJSON() as { amount?: unknown };
-        const amount = Number(body.amount);
-        if (!Number.isFinite(amount) || amount < 0.01) {
-          return reply(route, 400, problem(400, 'VALIDATION_FAILED', { errors: [{ field: 'amount', message: 'must be greater than or equal to 0.01' }] }));
-        }
-        const hash = `${agreement.id}|${amount.toFixed(2)}`;
-        const previous = idempotency.get(key);
-        if (previous) {
-          if (previous.hash !== hash) {
-            return reply(route, 409, problem(409, 'IDEMPOTENCY_KEY_REUSED'));
-          }
-          const original = agreement.repayments.find((r) => r.id === previous.repaymentId)!;
-          return reply(route, 200, original, { 'Idempotent-Replayed': 'true' });
-        }
-        if (agreement.status === 'SETTLED') {
-          return reply(route, 409, problem(409, 'AGREEMENT_SETTLED'));
-        }
-        if (agreement.status !== 'DISBURSED' && agreement.status !== 'REPAYMENT_IN_PROGRESS') {
-          return reply(route, 409, problem(409, 'REPAYMENT_NOT_ALLOWED'));
-        }
-        if (cents(amount) > cents(outstanding(agreement))) {
-          return reply(route, 422, {
-            ...problem(422, 'REPAYMENT_EXCEEDS_OUTSTANDING'),
-            detail: 'The repayment is larger than the amount outstanding',
-          });
-        }
-        const repayment = applyRepayment(agreement, amount);
-        idempotency.set(key, { hash, repaymentId: repayment.id });
-        if (dropNextRepayment) {
-          dropNextRepayment = false;
-          return route.abort('connectionreset');
-        }
-        return reply(route, 201, repayment, { 'Idempotent-Replayed': 'false' });
-      }
-    }
-    return reply(route, 404, problem(404, 'NOT_FOUND'));
+    const [status, body, headers] = await handle(request, url);
+    return reply(route, status, body, headers);
   };
 
-  await page.route(/^http:\/\/localhost:8080\/api\/financing\/.*$/, handler);
+  await page.route(/^http:\/\/localhost:8080\/api\/financing([/?].*)?$/, handler);
 
   return {
+    opportunities,
     offers,
     agreements,
     requests,
-    failNext: (method, suffix, status, body) => failures.push({ method, suffix, status, body }),
-    dropNextRepaymentResponse: () => (dropNextRepayment = true),
+    failNext: (failure) => failures.push(failure),
     setDelay: (ms) => (delay = ms),
   };
 }
 
-export const SELLER_ID = '50000000-0000-4000-8000-000000000001';
+export function storedOpportunity(overrides: Partial<StoredOpportunity> = {}): StoredOpportunity {
+  return {
+    invoiceId: 'b0000000-0000-4000-8000-000000000001',
+    invoiceNumber: 'INV-0001',
+    buyerName: 'Kaveri Textiles Pvt Ltd',
+    amount: 500000,
+    currency: 'INR',
+    issueDate: isoDate(-10),
+    dueDate: isoDate(60),
+    daysToMaturity: 60,
+    maxAdvanceAmount: 490000,
+    ...overrides,
+  };
+}
 
-export function storedOffer(overrides: Partial<StoredOffer>): StoredOffer {
+export function storedOffer(overrides: Partial<StoredOffer> = {}): StoredOffer {
   return {
     id: 'f0000000-0000-4000-8000-000000000001',
     invoiceId: 'b0000000-0000-4000-8000-000000000001',
     sellerId: SELLER_ID,
-    financierId: '60000000-0000-4000-8000-000000000001',
-    advanceAmount: 250000,
-    annualRate: 0.12,
-    processingFee: 1000,
-    installmentCount: 2,
+    financierId: FINANCIER_ID,
+    advanceAmount: 450000,
+    annualRate: 0.14,
+    processingFee: 0,
+    installmentCount: 1,
     currency: 'INR',
     expiresAt: new Date(Date.now() + 5 * 86_400_000).toISOString(),
     status: 'OFFERED',
     statusReason: null,
     decidedAt: null,
-    createdAt: '2026-10-20T05:00:00Z',
+    createdAt: new Date(Date.now() - 3_600_000).toISOString(),
     ...overrides,
   };
 }
 
-/** A disbursed agreement with two installments; the first is overdue with penalty interest. */
-export function disbursedAgreement(overrides: Partial<StoredAgreement> = {}): StoredAgreement {
+export function storedAgreement(overrides: Partial<StoredAgreement> = {}): StoredAgreement {
   return {
     id: 'e0000000-0000-4000-8000-000000000001',
-    offerId: 'f0000000-0000-4000-8000-000000000001',
-    invoiceId: 'b0000000-0000-4000-8000-000000000001',
+    offerId: 'f0000000-0000-4000-8000-000000000009',
+    invoiceId: 'b0000000-0000-4000-8000-000000000009',
     sellerId: SELLER_ID,
-    financierId: '60000000-0000-4000-8000-000000000001',
-    invoiceAmount: 340000,
-    advanceAmount: 250000,
+    financierId: FINANCIER_ID,
+    invoiceAmount: 500000,
+    advanceAmount: 480000,
     annualRate: 0.12,
     processingFee: 1000,
     installmentCount: 2,
     currency: 'INR',
-    maturityDate: '2026-12-15',
-    status: 'DISBURSED',
+    maturityDate: isoDate(60),
+    status: 'PENDING_APPROVAL',
     statusReason: null,
-    feeAmount: 5000,
-    totalRepayable: 255000,
+    feeAmount: null,
+    totalRepayable: null,
     principalRepaid: 0,
     feeRepaid: 0,
-    approvedAt: '2026-09-20T05:00:00Z',
-    disbursedAt: '2026-09-21T05:00:00Z',
+    approvedAt: null,
+    disbursedAt: null,
     settledAt: null,
-    createdAt: '2026-09-19T05:00:00Z',
-    penaltyAccrued: 210.5,
-    penaltyRepaid: 0,
-    schedule: [
-      {
-        sequenceNo: 1,
-        dueDate: '2026-10-18',
-        principalDue: 125000,
-        feeDue: 2500,
-        totalDue: 127500,
-        principalPaid: 0,
-        feePaid: 0,
-        remaining: 127710.5,
-        status: 'OVERDUE',
-        penaltyAccrued: 210.5,
-        penaltyPaid: 0,
-        penaltyRemaining: 210.5,
-        penaltyAccruedThrough: '2026-10-28',
-      },
-      {
-        sequenceNo: 2,
-        dueDate: '2026-12-15',
-        principalDue: 125000,
-        feeDue: 2500,
-        totalDue: 127500,
-        principalPaid: 0,
-        feePaid: 0,
-        remaining: 127500,
-        status: 'PENDING',
-        penaltyAccrued: 0,
-        penaltyPaid: 0,
-        penaltyRemaining: 0,
-        penaltyAccruedThrough: null,
-      },
-    ],
-    repayments: [],
+    createdAt: '2026-10-28T09:00:00Z',
+    schedule: [],
+    disbursement: null,
     ...overrides,
   };
 }
