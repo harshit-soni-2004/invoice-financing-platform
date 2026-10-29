@@ -412,5 +412,5 @@ The script also checks the negative paths:
 | 4 Financing ✅ | Read model, offers, agreements, disbursement idempotency, schedules, repayments, settlement, concurrency tests, gateway route | 3 |
 | 5 Events ✅ | Outbox in auth/invoice/financing, consumers, notification & audit services, retries/DLQ, duplicate-delivery tests | 2–4 |
 | 6 Frontend (in progress) | Angular 21 seller/financier/admin workflows against real APIs (Angular 19 was planned; it is end-of-life with unpatched advisories). Done: app shell, themes, Authorization Code + PKCE sign-in, role guards and API token handling, seller/financier registration, seller invoices (list, create, details, submit and list for financing with `If-Match`). Next: the admin console (invoice verification, financier approval), then the financier workflow | 3–5 |
-| 7 Containers & CI | Dockerfiles (multi-stage, non-root), full Compose, health ordering, GitHub Actions | 1–6 |
+| 7 Containers & CI ✅ | Dockerfiles (multi-stage, non-root, healthchecks), full Compose behind the `app` profile with health ordering and a one-shot dev signing-key volume, GitHub Actions (Maven verify, frontend checks, mocked and full-stack E2E, image build with Trivy, SBOMs and GHCR push), Dependabot | 1–6 (images cover the frontend as it stands) |
 | 8 Verification | End-to-end run, security pass, final docs | all |
