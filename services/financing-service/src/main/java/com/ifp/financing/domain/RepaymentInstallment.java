@@ -40,6 +40,15 @@ public class RepaymentInstallment {
     @Column(name = "fee_paid", nullable = false, precision = 19, scale = 2)
     private BigDecimal feePaid;
 
+    @Column(name = "penalty_accrued", nullable = false, precision = 19, scale = 2)
+    private BigDecimal penaltyAccrued;
+
+    @Column(name = "penalty_paid", nullable = false, precision = 19, scale = 2)
+    private BigDecimal penaltyPaid;
+
+    @Column(name = "penalty_accrued_through")
+    private LocalDate penaltyAccruedThrough;
+
     @Version
     @Column(name = "version", nullable = false)
     private Long version;
@@ -57,16 +66,44 @@ public class RepaymentInstallment {
         this.feeDue = feeDue;
         this.principalPaid = Money.ZERO;
         this.feePaid = Money.ZERO;
+        this.penaltyAccrued = Money.ZERO;
+        this.penaltyPaid = Money.ZERO;
     }
 
     void pay(BigDecimal principal, BigDecimal fee) {
+        pay(principal, fee, Money.ZERO);
+    }
+
+    void pay(BigDecimal principal, BigDecimal fee, BigDecimal penalty) {
         BigDecimal newPrincipal = principalPaid.add(principal);
         BigDecimal newFee = feePaid.add(fee);
-        if (newPrincipal.compareTo(principalDue) > 0 || newFee.compareTo(feeDue) > 0) {
+        BigDecimal newPenalty = penaltyPaid.add(penalty);
+        if (newPrincipal.compareTo(principalDue) > 0 || newFee.compareTo(feeDue) > 0 || newPenalty.compareTo(penaltyAccrued) > 0) {
             throw new IllegalStateException("Installment overpaid");
         }
         principalPaid = newPrincipal;
         feePaid = newFee;
+        penaltyPaid = newPenalty;
+    }
+
+    /**
+     * Records penalty accrued for every overdue day up to and including {@code through}. The caller holds the row
+     * lock and has already applied the cap, so {@code amount} may be zero (nothing chargeable, day still examined).
+     */
+    public void accruePenalty(LocalDate through, BigDecimal amount) {
+        if (amount.signum() < 0) {
+            throw new IllegalArgumentException("Penalty must not be negative");
+        }
+        if (penaltyAccruedThrough != null && !through.isAfter(penaltyAccruedThrough)) {
+            throw new IllegalStateException("Penalty already accrued through " + penaltyAccruedThrough);
+        }
+        penaltyAccrued = penaltyAccrued.add(amount);
+        penaltyAccruedThrough = through;
+    }
+
+    /** First business day not yet accrued: the day after the due date, or after the last accrued day. */
+    public LocalDate firstUnaccruedDay() {
+        return penaltyAccruedThrough == null ? dueDate.plusDays(1) : penaltyAccruedThrough.plusDays(1);
     }
 
     public BigDecimal principalRemaining() {
@@ -77,8 +114,18 @@ public class RepaymentInstallment {
         return feeDue.subtract(feePaid);
     }
 
-    public BigDecimal remaining() {
+    public BigDecimal penaltyRemaining() {
+        return penaltyAccrued.subtract(penaltyPaid);
+    }
+
+    /** Unpaid scheduled amount (principal + fee): the base penalty interest is charged on. */
+    public BigDecimal scheduledRemaining() {
         return principalRemaining().add(feeRemaining());
+    }
+
+    /** Everything still owed on this installment, including unpaid penalty. */
+    public BigDecimal remaining() {
+        return scheduledRemaining().add(penaltyRemaining());
     }
 
     public BigDecimal totalDue() {
@@ -126,5 +173,17 @@ public class RepaymentInstallment {
 
     public BigDecimal getFeePaid() {
         return feePaid;
+    }
+
+    public BigDecimal getPenaltyAccrued() {
+        return penaltyAccrued;
+    }
+
+    public BigDecimal getPenaltyPaid() {
+        return penaltyPaid;
+    }
+
+    public LocalDate getPenaltyAccruedThrough() {
+        return penaltyAccruedThrough;
     }
 }

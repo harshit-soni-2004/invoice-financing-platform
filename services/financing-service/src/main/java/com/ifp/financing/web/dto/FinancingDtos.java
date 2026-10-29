@@ -88,7 +88,8 @@ public final class FinancingDtos {
                                     BigDecimal feeRepaid, BigDecimal outstanding, BigDecimal principalOutstanding,
                                     BigDecimal feeOutstanding, Boolean overdue, BigDecimal overdueAmount,
                                     LocalDate nextDueDate, Instant approvedAt, Instant disbursedAt, Instant settledAt,
-                                    Instant createdAt) {
+                                    Instant createdAt, BigDecimal penaltyAccrued, BigDecimal penaltyRepaid,
+                                    BigDecimal penaltyOutstanding) {
 
         public static AgreementResponse from(AgreementService.AgreementDetails details) {
             return of(details.agreement(), details.overdueAmount(), details.nextDueDate());
@@ -106,7 +107,8 @@ public final class FinancingDtos {
                     a.getFeeAmount(), a.getTotalRepayable(), a.getPrincipalRepaid(), a.getFeeRepaid(), a.outstanding(),
                     a.principalOutstanding(), a.feeOutstanding(),
                     overdueAmount == null ? null : overdueAmount.signum() > 0, overdueAmount, nextDueDate,
-                    a.getApprovedAt(), a.getDisbursedAt(), a.getSettledAt(), a.getCreatedAt());
+                    a.getApprovedAt(), a.getDisbursedAt(), a.getSettledAt(), a.getCreatedAt(),
+                    a.getPenaltyAccrued(), a.getPenaltyRepaid(), a.penaltyOutstanding());
         }
     }
 
@@ -118,20 +120,28 @@ public final class FinancingDtos {
         }
     }
 
+    /**
+     * {@code totalDue} is the scheduled principal + fee; {@code remaining} is everything still owed on the installment,
+     * including unpaid penalty ({@code penaltyRemaining}), so it is zero exactly when the status is PAID.
+     */
     public record InstallmentResponse(int sequenceNo, LocalDate dueDate, BigDecimal principalDue, BigDecimal feeDue,
                                       BigDecimal totalDue, BigDecimal principalPaid, BigDecimal feePaid,
-                                      BigDecimal remaining, RepaymentInstallment.Status status) {
+                                      BigDecimal remaining, RepaymentInstallment.Status status,
+                                      BigDecimal penaltyAccrued, BigDecimal penaltyPaid, BigDecimal penaltyRemaining,
+                                      LocalDate penaltyAccruedThrough) {
         public static InstallmentResponse from(RepaymentInstallment i, LocalDate today) {
             return new InstallmentResponse(i.getSequenceNo(), i.getDueDate(), i.getPrincipalDue(), i.getFeeDue(),
-                    i.totalDue(), i.getPrincipalPaid(), i.getFeePaid(), i.remaining(), i.statusOn(today));
+                    i.totalDue(), i.getPrincipalPaid(), i.getFeePaid(), i.remaining(), i.statusOn(today),
+                    i.getPenaltyAccrued(), i.getPenaltyPaid(), i.penaltyRemaining(), i.getPenaltyAccruedThrough());
         }
     }
 
     public record RepaymentResponse(UUID id, UUID agreementId, BigDecimal amount, BigDecimal principalComponent,
-                                    BigDecimal feeComponent, String currency, Instant receivedAt) {
+                                    BigDecimal feeComponent, String currency, Instant receivedAt,
+                                    BigDecimal penaltyComponent) {
         public static RepaymentResponse from(Repayment r) {
             return new RepaymentResponse(r.getId(), r.getAgreementId(), r.getAmount(), r.getPrincipalComponent(),
-                    r.getFeeComponent(), r.getCurrency(), r.getReceivedAt());
+                    r.getFeeComponent(), r.getCurrency(), r.getReceivedAt(), r.getPenaltyComponent());
         }
     }
 

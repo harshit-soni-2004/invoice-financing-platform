@@ -8,6 +8,8 @@ import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.containers.RabbitMQContainer;
 import org.testcontainers.utility.DockerImageName;
 
+import java.time.Duration;
+
 @TestConfiguration(proxyBeanMethods = false)
 public class TestcontainersConfiguration {
 
@@ -24,7 +26,9 @@ public class TestcontainersConfiguration {
     @Bean
     @ServiceConnection
     RabbitMQContainer rabbitContainer() {
-        return new RabbitMQContainer(DockerImageName.parse("rabbitmq:4.1-management-alpine"));
+        // A loaded Docker host can take over a minute to boot RabbitMQ; the default wait is 60 s.
+        return new RabbitMQContainer(DockerImageName.parse("rabbitmq:4.1-management-alpine"))
+                .withStartupTimeout(Duration.ofMinutes(3));
     }
 
     @Bean

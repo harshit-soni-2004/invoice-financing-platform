@@ -77,6 +77,12 @@ public class FinancingAgreement {
     @Column(name = "fee_repaid", nullable = false, precision = 19, scale = 2)
     private BigDecimal feeRepaid;
 
+    @Column(name = "penalty_accrued", nullable = false, precision = 19, scale = 2)
+    private BigDecimal penaltyAccrued;
+
+    @Column(name = "penalty_repaid", nullable = false, precision = 19, scale = 2)
+    private BigDecimal penaltyRepaid;
+
     @Column(name = "approved_at")
     private Instant approvedAt;
 
@@ -119,6 +125,8 @@ public class FinancingAgreement {
         agreement.status = AgreementStatus.PENDING_APPROVAL;
         agreement.principalRepaid = Money.ZERO;
         agreement.feeRepaid = Money.ZERO;
+        agreement.penaltyAccrued = Money.ZERO;
+        agreement.penaltyRepaid = Money.ZERO;
         agreement.createdAt = now;
         agreement.updatedAt = now;
         return agreement;
@@ -148,16 +156,24 @@ public class FinancingAgreement {
 
     /** Applies an already-allocated repayment; settles the agreement when nothing is outstanding. */
     public void applyRepayment(BigDecimal principalPart, BigDecimal feePart, Instant now) {
+        applyRepayment(principalPart, feePart, Money.ZERO, now);
+    }
+
+    /** Applies an already-allocated repayment, including penalty; settles the agreement when nothing is outstanding. */
+    public void applyRepayment(BigDecimal principalPart, BigDecimal feePart, BigDecimal penaltyPart, Instant now) {
         if (!status.acceptsRepayments()) {
             throw new ConflictException("REPAYMENT_NOT_ALLOWED", "Repayments are not accepted while the agreement is " + status);
         }
         BigDecimal newPrincipal = principalRepaid.add(principalPart);
         BigDecimal newFee = feeRepaid.add(feePart);
-        if (newPrincipal.compareTo(advanceAmount) > 0 || newFee.compareTo(feeAmount) > 0) {
+        BigDecimal newPenalty = penaltyRepaid.add(penaltyPart);
+        if (newPrincipal.compareTo(advanceAmount) > 0 || newFee.compareTo(feeAmount) > 0
+                || newPenalty.compareTo(penaltyAccrued) > 0) {
             throw new IllegalStateException("Allocation exceeds the amounts due");
         }
         principalRepaid = newPrincipal;
         feeRepaid = newFee;
+        penaltyRepaid = newPenalty;
         updatedAt = now;
         if (outstanding().signum() == 0) {
             moveTo(AgreementStatus.SETTLED, null, now);
@@ -173,12 +189,31 @@ public class FinancingAgreement {
         }
     }
 
-    /** Total still owed; equals the advance plus fee before any repayment, and zero once settled. */
+    /** Adds penalty accrued on overdue installments; only while repayments are still accepted. */
+    public void accruePenalty(BigDecimal amount, Instant now) {
+        if (!status.acceptsRepayments()) {
+            throw new IllegalStateException("Penalty accrues only on disbursed agreements, not while " + status);
+        }
+        if (amount.signum() < 0) {
+            throw new IllegalArgumentException("Penalty must not be negative");
+        }
+        penaltyAccrued = penaltyAccrued.add(amount);
+        updatedAt = now;
+    }
+
+    /**
+     * Total still owed, including unpaid penalty interest; equals the advance plus fee before any repayment or
+     * penalty, and zero once settled.
+     */
     public BigDecimal outstanding() {
         if (totalRepayable == null) {
             return Money.ZERO;
         }
-        return totalRepayable.subtract(principalRepaid).subtract(feeRepaid);
+        return totalRepayable.subtract(principalRepaid).subtract(feeRepaid).add(penaltyOutstanding());
+    }
+
+    public BigDecimal penaltyOutstanding() {
+        return penaltyAccrued.subtract(penaltyRepaid);
     }
 
     public BigDecimal principalOutstanding() {
@@ -274,6 +309,14 @@ public class FinancingAgreement {
 
     public BigDecimal getFeeRepaid() {
         return feeRepaid;
+    }
+
+    public BigDecimal getPenaltyAccrued() {
+        return penaltyAccrued;
+    }
+
+    public BigDecimal getPenaltyRepaid() {
+        return penaltyRepaid;
     }
 
     public Instant getApprovedAt() {

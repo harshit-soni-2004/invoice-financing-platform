@@ -9,6 +9,7 @@ import com.ifp.financing.repository.FinancingAgreementRepository;
 import com.ifp.financing.support.AbstractIntegrationTest;
 import com.ifp.messaging.EventEnvelope;
 import com.ifp.messaging.EventTopology;
+import com.ifp.messaging.ProcessedEventsPurger;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.core.AmqpAdmin;
 import org.springframework.amqp.core.BindingBuilder;
@@ -42,6 +43,8 @@ class FinancingMessagingIT extends AbstractIntegrationTest {
     private FinancingAgreementRepository agreements;
     @Autowired
     private JdbcTemplate jdbc;
+    @Autowired
+    private ProcessedEventsPurger processedEventsPurger;
 
     @Test
     void invoiceEventsBuildTheReadModelAndIgnoreDuplicatesAndStaleVersions() throws Exception {
@@ -65,6 +68,45 @@ class FinancingMessagingIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void consumerQueueHasTheThreeDelayedRetryTiers() {
+        for (java.time.Duration delay : EventTopology.DEFAULT_RETRY_DELAYS) {
+            assertThat(amqpAdmin.getQueueProperties(EventTopology.retryQueueName(InvoiceEventsListener.QUEUE, delay)))
+                    .as("tier %s", delay).isNotNull();
+        }
+        assertThat(EventTopology.DEFAULT_RETRY_DELAYS).containsExactly(java.time.Duration.ofSeconds(10),
+                java.time.Duration.ofMinutes(1), java.time.Duration.ofMinutes(10));
+    }
+
+    /**
+     * A message parked in the first tier (as after one failed attempt) comes back to the consumer only after the tier
+     * delay; a duplicate delivered directly in the meantime is applied once.
+     */
+    @Test
+    void messageWaitingInARetryTierReturnsAfterItsDelayAndIsAppliedOnce() throws Exception {
+        UUID invoiceId = UUID.randomUUID();
+        String listed = invoiceEvent(invoiceId, UUID.randomUUID(), "FINANCING_AVAILABLE", 4, "INR");
+        UUID eventId = UUID.fromString(objectMapper.readTree(listed).path("eventId").asText());
+        String tier = EventTopology.retryQueueName(InvoiceEventsListener.QUEUE, EventTopology.DEFAULT_RETRY_DELAYS.getFirst());
+        MessageProperties properties = new MessageProperties();
+        properties.setContentType(MessageProperties.CONTENT_TYPE_JSON);
+        properties.setMessageId(eventId.toString());
+        properties.setHeader(EventTopology.RETRY_COUNT_HEADER, 1);
+        Instant parked = Instant.now();
+        rabbit.send(EventTopology.RETRY_EXCHANGE, tier, new Message(listed.getBytes(StandardCharsets.UTF_8), properties));
+
+        Thread.sleep(3000);
+        assertThat(invoices.findById(invoiceId)).as("still waiting in %s", tier).isEmpty();
+        await(() -> invoices.findById(invoiceId).isPresent());
+        assertThat(java.time.Duration.between(parked, Instant.now())).isGreaterThanOrEqualTo(java.time.Duration.ofSeconds(9));
+
+        send("invoice.listed_for_financing", listed);
+        Thread.sleep(1500);
+        assertThat(jdbc.queryForObject("select count(*) from processed_events where consumer = ? and event_id = UUID_TO_BIN(?)",
+                Integer.class, InvoiceEventsListener.CONSUMER, eventId.toString())).isEqualTo(1);
+        assertThat(invoices.findById(invoiceId).orElseThrow().getSourceVersion()).isEqualTo(4);
+    }
+
+    @Test
     void invalidSnapshotIsDeadLetteredAndNotProjected() throws Exception {
         UUID invoiceId = UUID.randomUUID();
 
@@ -72,6 +114,8 @@ class FinancingMessagingIT extends AbstractIntegrationTest {
 
         Message dead = receiveContaining(InvoiceEventsListener.QUEUE + EventTopology.DLQ_SUFFIX, invoiceId.toString());
         assertThat(dead).as("dead-lettered snapshot").isNotNull();
+        assertThat(dead.getMessageProperties().getHeaders()).as("permanent failures skip the retry tiers")
+                .doesNotContainKey(EventTopology.RETRY_COUNT_HEADER);
         assertThat(invoices.findById(invoiceId)).isEmpty();
     }
 
@@ -102,6 +146,22 @@ class FinancingMessagingIT extends AbstractIntegrationTest {
         } finally {
             amqpAdmin.deleteQueue(probe.getName());
         }
+    }
+
+    @Test
+    void processedEventsOlderThanTheRetentionArePurged() {
+        String consumer = "retention-check-" + UUID.randomUUID().toString().substring(0, 8);
+        UUID old = UUID.randomUUID();
+        UUID recent = UUID.randomUUID();
+        String insert = "insert into processed_events (consumer, event_id, event_type, processed_at) values (?, UUID_TO_BIN(?), 'X', ?)";
+        jdbc.update(insert, consumer, old.toString(), java.sql.Timestamp.from(clock.instant().minus(java.time.Duration.ofDays(31))));
+        jdbc.update(insert, consumer, recent.toString(), java.sql.Timestamp.from(clock.instant().minus(java.time.Duration.ofDays(29))));
+
+        assertThat(processedEventsPurger.purgeExpired()).isGreaterThanOrEqualTo(1);
+
+        String count = "select count(*) from processed_events where consumer = ? and event_id = UUID_TO_BIN(?)";
+        assertThat(jdbc.queryForObject(count, Integer.class, consumer, old.toString())).isZero();
+        assertThat(jdbc.queryForObject(count, Integer.class, consumer, recent.toString())).isEqualTo(1);
     }
 
     @Test

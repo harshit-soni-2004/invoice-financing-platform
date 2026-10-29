@@ -263,13 +263,14 @@ public class AgreementService {
         List<RepaymentPlan.Allocation> split = RepaymentPlan.allocate(schedule, amount);
         BigDecimal principal = split.stream().map(RepaymentPlan.Allocation::principalPart).reduce(Money.ZERO, BigDecimal::add);
         BigDecimal fee = split.stream().map(RepaymentPlan.Allocation::feePart).reduce(Money.ZERO, BigDecimal::add);
+        BigDecimal penalty = split.stream().map(RepaymentPlan.Allocation::penaltyPart).reduce(Money.ZERO, BigDecimal::add);
         AgreementStatus from = agreement.getStatus();
-        agreement.applyRepayment(principal, fee, now);
+        agreement.applyRepayment(principal, fee, penalty, now);
         agreements.saveAndFlush(agreement);
-        Repayment repayment = repayments.saveAndFlush(new Repayment(UUID.randomUUID(), id, principal, fee, actor.userId(), now));
+        Repayment repayment = repayments.saveAndFlush(new Repayment(UUID.randomUUID(), id, principal, fee, penalty, actor.userId(), now));
         for (RepaymentPlan.Allocation allocation : split) {
             allocations.save(new RepaymentAllocation(repayment.getId(), allocation.installment().getId(),
-                    allocation.principalPart(), allocation.feePart()));
+                    allocation.principalPart(), allocation.feePart(), allocation.penaltyPart()));
         }
         events.repaymentRecorded(agreement, repayment, actor.userId());
         if (agreement.getStatus() != from) {

@@ -1,7 +1,10 @@
 package com.ifp.financing.config;
 
+import com.ifp.financing.domain.PenaltyPolicy;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
@@ -25,6 +28,7 @@ import java.time.ZoneId;
  * @param maxInstallments          largest number of repayment installments an offer may specify
  * @param offerExpirySweepInterval how often expired offers are marked EXPIRED
  * @param repaymentReminderDays    an unpaid installment due within this many days gets a "due soon" reminder
+ * @param penalty                  penalty interest on overdue installments, accrued by the overdue sweep
  */
 @Validated
 @ConfigurationProperties(prefix = "financing")
@@ -36,5 +40,24 @@ public record FinancingProperties(
         @PositiveOrZero int minDaysToMaturity,
         @Min(1) @Max(60) int maxInstallments,
         @NotNull Duration offerExpirySweepInterval,
-        @Min(1) @Max(30) int repaymentReminderDays) {
+        @Min(1) @Max(30) int repaymentReminderDays,
+        @NotNull @Valid Penalty penalty) {
+
+    /**
+     * Platform-wide penalty terms (not part of an offer). Changing them affects only days accrued afterwards; days
+     * already accrued keep the rate they were charged at ({@code penalty_accruals.daily_rate}).
+     *
+     * @param enabled   whether the overdue sweep accrues penalty at all
+     * @param dailyRate fraction of the unpaid principal + fee charged per overdue day (0.0005 = 0.05% per day)
+     * @param capRatio  total penalty per installment is capped at this fraction of its scheduled amount
+     */
+    public record Penalty(
+            boolean enabled,
+            @NotNull @DecimalMin("0.000001") @DecimalMax("0.010000") @Digits(integer = 1, fraction = 6) BigDecimal dailyRate,
+            @NotNull @DecimalMin("0.00") @DecimalMax("1.00") BigDecimal capRatio) {
+
+        public PenaltyPolicy policy() {
+            return new PenaltyPolicy(dailyRate, capRatio);
+        }
+    }
 }

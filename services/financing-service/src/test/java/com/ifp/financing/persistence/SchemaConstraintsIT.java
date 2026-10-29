@@ -25,12 +25,17 @@ class SchemaConstraintsIT extends AbstractIntegrationTest {
     @Test
     void flywayAppliedTheSchema() {
         assertThat(jdbc.queryForObject("select max(version) from flyway_schema_history where success = 1", String.class))
-                .isEqualTo("3");
+                .isEqualTo("601");
         List<String> tables = jdbc.queryForList(
                 "select table_name from information_schema.tables where table_schema = database()", String.class);
         assertThat(tables).contains("financeable_invoices", "financing_offers", "financing_agreements", "disbursements",
                 "repayment_installments", "repayments", "repayment_allocations", "idempotency_records",
-                "financing_status_history", "outbox_events", "processed_events", "repayment_reminders");
+                "financing_status_history", "outbox_events", "processed_events", "repayment_reminders",
+                "penalty_accruals");
+        assertThat(jdbc.queryForObject("""
+                select count(*) from information_schema.statistics
+                where table_schema = database() and table_name = 'processed_events' and index_name = 'ix_processed_events_processed_at'""",
+                Integer.class)).isEqualTo(1);
     }
 
     @Test
@@ -99,6 +104,37 @@ class SchemaConstraintsIT extends AbstractIntegrationTest {
                 bytes(UUID.randomUUID()), bytes(agreement), bytes(seller), now()))
                 .isInstanceOf(DataAccessException.class)
                 .hasMessageContaining("ck_repayments_amount");
+        jdbc.update("""
+                        insert into repayments (id, agreement_id, amount, principal_component, fee_component, penalty_component,
+                                                currency, recorded_by, received_at)
+                        values (?, ?, 100.00, 50.00, 10.00, 40.00, 'INR', ?, ?)""",
+                bytes(UUID.randomUUID()), bytes(agreement), bytes(seller), now());
+    }
+
+    @Test
+    void penaltyCannotBeRepaidBeyondWhatAccruedOrChargedTwiceForADay() {
+        UUID seller = UUID.randomUUID();
+        UUID invoice = listedInvoice(seller);
+        UUID offer = insertOffer(UUID.randomUUID(), invoice, UUID.randomUUID(), "ACCEPTED", "1000.00");
+        UUID agreement = insertAgreement(UUID.randomUUID(), offer, invoice, seller, "DISBURSED");
+        UUID installment = UUID.randomUUID();
+        jdbc.update("""
+                        insert into repayment_installments (id, agreement_id, sequence_no, due_date, principal_due, fee_due)
+                        values (?, ?, 1, ?, 1000.00, 10.00)""", bytes(installment), bytes(agreement), today().minusDays(5));
+
+        assertThatThrownBy(() -> jdbc.update("update repayment_installments set penalty_paid = 1.00 where id = ?", (Object) bytes(installment)))
+                .isInstanceOf(DataAccessException.class)
+                .hasMessageContaining("ck_repayment_installments_penalty");
+        assertThatThrownBy(() -> jdbc.update("update financing_agreements set penalty_repaid = 1.00 where id = ?", (Object) bytes(agreement)))
+                .isInstanceOf(DataAccessException.class)
+                .hasMessageContaining("ck_financing_agreements_penalty");
+
+        String accrual = """
+                insert into penalty_accruals (installment_id, accrual_date, agreement_id, base_amount, daily_rate, amount, created_at)
+                values (?, ?, ?, 1010.00, 0.000500, 0.51, ?)""";
+        jdbc.update(accrual, bytes(installment), today().minusDays(1), bytes(agreement), now());
+        assertThatThrownBy(() -> jdbc.update(accrual, bytes(installment), today().minusDays(1), bytes(agreement), now()))
+                .isInstanceOf(DataIntegrityViolationException.class);
     }
 
     @Test

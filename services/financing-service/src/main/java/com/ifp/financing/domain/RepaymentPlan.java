@@ -15,13 +15,14 @@ import java.util.function.Supplier;
  *   <li>Principal and fee are each split into {@code n} parts rounded DOWN to paise; the last installment takes the
  *       remainder, so the parts always add up exactly to the advance and the fee.</li>
  *   <li>Due dates are spread evenly from the disbursement date; the last one is always the invoice due date.</li>
- *   <li>A repayment is applied to the oldest installment first; within an installment the fee is settled before
- *       principal.</li>
+ *   <li>A repayment is applied to the oldest installment first; within an installment accrued penalty interest is
+ *       settled first, then the fee, then principal.</li>
  * </ul>
  */
 public final class RepaymentPlan {
 
-    public record Allocation(RepaymentInstallment installment, BigDecimal principalPart, BigDecimal feePart) {
+    public record Allocation(RepaymentInstallment installment, BigDecimal principalPart, BigDecimal feePart,
+                             BigDecimal penaltyPart) {
     }
 
     private RepaymentPlan() {
@@ -65,13 +66,15 @@ public final class RepaymentPlan {
             if (left.signum() == 0) {
                 break;
             }
+            BigDecimal penaltyPart = left.min(installment.penaltyRemaining());
+            left = left.subtract(penaltyPart);
             BigDecimal feePart = left.min(installment.feeRemaining());
             left = left.subtract(feePart);
             BigDecimal principalPart = left.min(installment.principalRemaining());
             left = left.subtract(principalPart);
-            if (feePart.signum() > 0 || principalPart.signum() > 0) {
-                installment.pay(principalPart, feePart);
-                allocations.add(new Allocation(installment, principalPart, feePart));
+            if (penaltyPart.signum() > 0 || feePart.signum() > 0 || principalPart.signum() > 0) {
+                installment.pay(principalPart, feePart, penaltyPart);
+                allocations.add(new Allocation(installment, principalPart, feePart, penaltyPart));
             }
         }
         return allocations;
