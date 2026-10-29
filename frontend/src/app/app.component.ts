@@ -1,5 +1,5 @@
 
-import { ChangeDetectionStrategy, Component, computed, inject, signal, DOCUMENT } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, untracked, DOCUMENT } from '@angular/core';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { filter } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -7,6 +7,9 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { AuthService, homeFor } from './core/auth/auth.service';
 import { ROLE_LABELS } from './core/auth/role-labels';
 import { ThemeService } from './core/theme/theme.service';
+import { NotificationBadgeService } from './features/notifications/notification-badge.service';
+
+export const NOTIFICATIONS_PATH = '/notifications';
 
 const AREA_LABELS = { SELLER: 'Seller workspace', FINANCIER: 'Financier workspace', ADMIN: 'Admin console' } as const;
 
@@ -27,6 +30,8 @@ export class AppComponent {
   private readonly document = inject(DOCUMENT);
   protected readonly theme = inject(ThemeService);
   protected readonly auth = inject(AuthService);
+  protected readonly notifications = inject(NotificationBadgeService);
+  protected readonly notificationsPath = NOTIFICATIONS_PATH;
   protected readonly menuOpen = signal(false);
   protected readonly year = new Date().getFullYear();
   protected readonly roleLabels = ROLE_LABELS;
@@ -36,7 +41,11 @@ export class AppComponent {
     const links: NavLink[] = [{ path: '/', label: 'Home', exact: true }];
     const user = this.auth.user();
     if (user) {
-      links.push({ path: homeFor(user.role), label: AREA_LABELS[user.role] }, { path: '/account', label: 'Account' });
+      links.push(
+        { path: homeFor(user.role), label: AREA_LABELS[user.role] },
+        { path: NOTIFICATIONS_PATH, label: 'Notifications' },
+        { path: '/account', label: 'Account' },
+      );
     }
     return links;
   });
@@ -58,7 +67,17 @@ export class AppComponent {
         filter((event) => event instanceof NavigationEnd),
         takeUntilDestroyed(),
       )
-      .subscribe(() => this.menuOpen.set(false));
+      .subscribe(() => {
+        this.menuOpen.set(false);
+        if (this.auth.user()) {
+          void this.notifications.refreshIfStale();
+        }
+      });
+    effect(() => {
+      if (this.auth.user()) {
+        untracked(() => void this.notifications.refresh());
+      }
+    });
   }
 
   /** With <base href="/">, following "#main" would navigate to "/#main"; move focus instead. */

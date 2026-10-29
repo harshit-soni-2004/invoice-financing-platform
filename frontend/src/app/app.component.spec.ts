@@ -4,17 +4,28 @@ import { provideRouter } from '@angular/router';
 import { AppComponent } from './app.component';
 import { AuthService } from './core/auth/auth.service';
 import { SessionUser } from './core/auth/id-token';
+import { NotificationBadgeService } from './features/notifications/notification-badge.service';
 
 describe('AppComponent', () => {
   const user = signal<SessionUser | null>(null);
   const signOut = jasmine.createSpy('signOut');
+  const badgeLabel = signal<string | null>(null);
+  const refresh = jasmine.createSpy('refresh').and.resolveTo();
+  const refreshIfStale = jasmine.createSpy('refreshIfStale').and.resolveTo();
 
   beforeEach(async () => {
     user.set(null);
+    badgeLabel.set(null);
     signOut.calls.reset();
+    refresh.calls.reset();
+    refreshIfStale.calls.reset();
     await TestBed.configureTestingModule({
       imports: [AppComponent],
-      providers: [provideRouter([]), { provide: AuthService, useValue: { user, signOut } }],
+      providers: [
+        provideRouter([]),
+        { provide: AuthService, useValue: { user, signOut } },
+        { provide: NotificationBadgeService, useValue: { label: badgeLabel, refresh, refreshIfStale } },
+      ],
     }).compileComponents();
   });
 
@@ -66,5 +77,29 @@ describe('AppComponent', () => {
     const signOutButton = Array.from(el.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Sign out');
     signOutButton?.click();
     expect(signOut).toHaveBeenCalled();
+  });
+
+  it('does not check notifications for visitors', () => {
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+    expect(refresh).not.toHaveBeenCalled();
+    expect(fixture.nativeElement.querySelector('a[href="/notifications"]')).toBeNull();
+  });
+
+  it('links to notifications and shows the new count in the link and on the phone menu button', () => {
+    user.set({ id: 'u', name: 'Asha Rao', role: 'SELLER' });
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+    const el: HTMLElement = fixture.nativeElement;
+    expect(refresh).toHaveBeenCalledTimes(1);
+
+    const link = el.querySelector('a[href="/notifications"]')!;
+    expect(link.textContent?.trim()).toBe('Notifications');
+    expect(el.querySelector('.menu-toggle .nav-count')).toBeNull();
+
+    badgeLabel.set('3');
+    fixture.detectChanges();
+    expect(link.querySelector('.nav-count')?.textContent?.trim()).toBe('3 new');
+    expect(el.querySelector('.menu-toggle')?.textContent).toContain('3 new notifications');
   });
 });

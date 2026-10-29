@@ -71,6 +71,18 @@ export const SELLER_ACTION_FROM: Readonly<Record<SellerAction, InvoiceStatus>> =
   'list-for-financing': 'VERIFIED',
 };
 
+/** The administrator's verification steps, keyed by the statuses each one may start from. */
+export type ReviewAction = 'buyer-confirmation' | 'verify' | 'reject';
+
+export const REVIEW_ACTION_FROM: Readonly<Record<ReviewAction, readonly InvoiceStatus[]>> = {
+  'buyer-confirmation': ['SUBMITTED'],
+  verify: ['BUYER_CONFIRMED'],
+  reject: ['SUBMITTED', 'BUYER_CONFIRMED'],
+};
+
+/** invoice-service's limit on a rejection reason. */
+export const REJECT_REASON_MAX = 500;
+
 /** One row of `GET /api/invoices`. */
 export interface InvoiceSummary {
   id: string;

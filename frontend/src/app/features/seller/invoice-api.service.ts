@@ -11,6 +11,7 @@ import {
   InvoicePage,
   InvoiceStatus,
   InvoiceSummary,
+  ReviewAction,
   SellerAction,
   VersionedInvoice,
 } from './invoice.models';
@@ -97,6 +98,17 @@ export class InvoiceApiService {
   async transition(action: SellerAction, id: string, etag: string): Promise<VersionedInvoice> {
     const response = await call(
       this.http.post<unknown>(`${this.url}/${encodeURIComponent(id)}/${action}`, null, {
+        observe: 'response',
+        headers: new HttpHeaders({ 'If-Match': etag }),
+      }),
+    );
+    return versioned(response);
+  }
+
+  /** An administrator's verification step, with the same version check. Only `reject` has a body: the reason. */
+  async review(action: ReviewAction, id: string, etag: string, reason?: string): Promise<VersionedInvoice> {
+    const response = await call(
+      this.http.post<unknown>(`${this.url}/${encodeURIComponent(id)}/${action}`, action === 'reject' ? { reason } : null, {
         observe: 'response',
         headers: new HttpHeaders({ 'If-Match': etag }),
       }),

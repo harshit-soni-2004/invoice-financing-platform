@@ -16,6 +16,10 @@
     >
       <span aria-hidden="true">{{ menuOpen() ? '✕' : '☰' }}</span>
       <span class="visually-hidden">Menu</span>
+      @if (notifications.label(); as count) {
+        <span class="badge badge-primary nav-count" aria-hidden="true">{{ count }}</span>
+        <span class="visually-hidden">, {{ count }} new notifications</span>
+      }
     </button>
 
     <nav id="primary-nav" class="nav" [class.open]="menuOpen()" aria-label="Primary">
@@ -27,7 +31,12 @@
               routerLinkActive="active"
               ariaCurrentWhenActive="page"
               [routerLinkActiveOptions]="{ exact: link.exact ?? false }"
-              >{{ link.label }}</a
+              >{{ link.label }}
+              @if (link.path === notificationsPath) {
+                @if (notifications.label(); as count) {
+                  <span class="badge badge-primary nav-count">{{ count }}<span class="visually-hidden"> new</span></span>
+                }
+              }</a
             >
           </li>
         }

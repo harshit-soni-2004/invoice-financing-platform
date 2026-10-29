@@ -63,10 +63,15 @@ export const routes: Routes = [
   },
   {
     path: 'admin',
-    title: 'Admin console · Invoice Financing',
     canActivate: [roleGuard('ADMIN')],
-    data: { area: 'ADMIN' },
-    loadComponent: workspace,
+    loadChildren: () => import('./features/admin/admin.routes').then((m) => m.ADMIN_ROUTES),
+  },
+  {
+    path: 'notifications',
+    title: 'Notifications · Invoice Financing',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./features/notifications/notification-list.component').then((m) => m.NotificationListComponent),
   },
   {
     path: 'forbidden',

@@ -1,0 +1,76 @@
+<section class="page">
+  <header class="page-header">
+    <div>
+      <h1>Notifications</h1>
+      <p class="subtitle">
+        Updates about your account, invoices and financing, newest first. "New" marks messages that arrived since you
+        last opened this page on this device.
+      </p>
+    </div>
+    <button type="button" class="btn btn-secondary" (click)="refresh()" [disabled]="loading()">Refresh</button>
+  </header>
+
+  <p class="muted summary" aria-live="polite">
+    @if (loading()) {
+      Loading notifications…
+    } @else if (range(); as r) {
+      Showing {{ r.from }}–{{ r.to }} of {{ r.total }} {{ r.total === 1 ? 'notification' : 'notifications' }}
+    }
+  </p>
+
+  @if (loading()) {
+    <div class="card placeholder" aria-hidden="true">
+      <div class="bar"></div>
+      <div class="bar"></div>
+      <div class="bar"></div>
+    </div>
+  } @else if (errorMessage(); as message) {
+    <div class="alert alert-danger stack" role="alert">
+      <p>Your notifications could not be loaded. {{ message }}</p>
+      <div>
+        <button type="button" class="btn btn-secondary btn-sm" (click)="refresh()">Try again</button>
+      </div>
+    </div>
+  } @else if (loaded(); as state) {
+    @if (state.result.content.length === 0) {
+      <div class="card stack empty">
+        <h2>No notifications yet</h2>
+        <p class="muted">We will let you know here when something needs your attention.</p>
+      </div>
+    } @else {
+      <ol class="items" aria-label="Notifications, newest first">
+        @for (item of state.result.content; track item.id) {
+          <li class="card item" [class.fresh]="state.fresh.has(item.id)">
+            <div class="item-head">
+              <span class="subject">{{ item.subject }}</span>
+              @if (state.fresh.has(item.id)) {
+                <span class="badge badge-primary">New</span>
+              }
+            </div>
+            <p class="meta muted">
+              <time [attr.datetime]="item.createdAt">{{ formatInstant(item.createdAt) }}</time>
+              <span aria-hidden="true">·</span>
+              <span>{{ delivery(item) }}</span>
+            </p>
+          </li>
+        }
+      </ol>
+
+      @if (state.result.totalPages > 1) {
+        <nav class="pagination cluster" aria-label="Notification pages">
+          @if (state.result.page > 0) {
+            <a class="btn btn-secondary btn-sm" routerLink="." [queryParams]="pageLink(state.result.page - 1)" queryParamsHandling="merge">
+              Previous
+            </a>
+          }
+          <span class="muted">Page {{ state.result.page + 1 }} of {{ state.result.totalPages }}</span>
+          @if (state.result.page + 1 < state.result.totalPages) {
+            <a class="btn btn-secondary btn-sm" routerLink="." [queryParams]="pageLink(state.result.page + 1)" queryParamsHandling="merge">
+              Next
+            </a>
+          }
+        </nav>
+      }
+    }
+  }
+</section>

@@ -402,6 +402,12 @@ The script also checks the negative paths:
 - **Flyway 11.7.2**, the version Spring Boot 3.5.16 manages, logs "upgrade recommended" for MySQL 8.4 because it was not tested against that version. Migrations are verified against MySQL 8.4 by the integration tests. The Spring Boot-managed version is kept rather than overridden.
 - **Mockito agent JVM notice:** tests load Mockito with `-javaagent`, which is the setup Mockito documents now that runtime self-attach is deprecated (JEP 451). This removes the self-attach warnings. Each test JVM still prints "Sharing is only supported for boot loader classes because bootstrap classpath has been appended". That notice comes from class-data sharing (CDS) and is harmless. It is not hidden with `-Xshare:off`, which would only slow test startup.
 
+### Known gaps
+
+- **Financier rejection:** auth-service has no endpoint to decline or disable an account (only `GET /api/admin/users` and `POST /api/admin/users/{id}/activate`), so the admin console can approve financiers but not reject them.
+- **Notification read state:** notification-service stores no read/unread state and has no mark-as-read endpoint, so the app cannot mark notifications as read.
+- **Header "new" count:** the notification count in the app header is derived from a per-device `localStorage` timestamp of the newest notification the user has seen, not from server state. It does not sync across browsers or devices.
+
 ## 9. Roadmap
 
 | Phase | Scope | Depends on |
@@ -411,6 +417,6 @@ The script also checks the negative paths:
 | 3 Auth & gateway ✅ | auth-service (Authorization Server, users, registration, RSA key management, token contract above), gateway routes/token validation/CORS/rate limit/correlation IDs, negative authz tests, repeatable end-to-end script. Resource-server config for financing/notification/audit lands with those services (Phases 4–5) | 1, 2 |
 | 4 Financing ✅ | Read model, offers, agreements, disbursement idempotency, schedules, repayments, settlement, concurrency tests, gateway route | 3 |
 | 5 Events ✅ | Outbox in auth/invoice/financing, consumers, notification & audit services, retries/DLQ, duplicate-delivery tests | 2–4 |
-| 6 Frontend (in progress) | Angular 21 seller/financier/admin workflows against real APIs (Angular 19 was planned; it is end-of-life with unpatched advisories). Done: app shell, themes, Authorization Code + PKCE sign-in, role guards and API token handling, seller/financier registration, seller invoices (list, create, details, submit and list for financing with `If-Match`). Next: the admin console (invoice verification, financier approval), then the financier workflow | 3–5 |
+| 6 Frontend (in progress) | Angular 21 seller/financier/admin workflows against real APIs (Angular 19 was planned; it is end-of-life with unpatched advisories). Done: app shell, themes, Authorization Code + PKCE sign-in, role guards and API token handling, seller/financier registration, seller invoices (list, create, details, submit and list for financing with `If-Match`), the admin console (invoice queue with buyer confirmation, verification and rejection with `If-Match`, financier approval, read-only audit log) and notifications for all roles with a per-device "new" count. Next: the financier workflow | 3–5 |
 | 7 Containers & CI | Dockerfiles (multi-stage, non-root), full Compose, health ordering, GitHub Actions | 1–6 |
 | 8 Verification | End-to-end run, security pass, final docs | all |

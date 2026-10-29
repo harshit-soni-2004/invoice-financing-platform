@@ -12,7 +12,7 @@ async function openMenu(page: Page, isMobile: boolean): Promise<void> {
 }
 
 test.describe('sign-in (mocked auth-service and gateway)', () => {
-  test('a seller signs in, sees their account and signs out', async ({ page, isMobile }) => {
+  test('a seller signs in, sees their account and signs out', async ({ page, isMobile, baseURL }) => {
     const auth = await mockAuth(page, seller);
     await page.goto('/');
     await openMenu(page, isMobile);
@@ -41,7 +41,7 @@ test.describe('sign-in (mocked auth-service and gateway)', () => {
 
     await openMenu(page, isMobile);
     await page.getByRole('button', { name: 'Sign out' }).click();
-    await expect(page).toHaveURL(/:4200\/$/);
+    await expect(page).toHaveURL(`${new URL(baseURL!).origin}/`);
     await openMenu(page, isMobile);
     await expect(page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Sign in' })).toBeVisible();
   });

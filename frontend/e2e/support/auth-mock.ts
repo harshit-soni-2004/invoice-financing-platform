@@ -111,6 +111,11 @@ export async function mockAuth(page: Page, user: MockUser): Promise<AuthMock> {
       return route.fulfill({ status: 204, headers: CORS });
     }
     const authorization = (await request.headerValue('authorization')) ?? '';
+    // The shell header checks for new notifications on every signed-in page. That background check gets an empty list
+    // and stays out of apiAuthorizations, so assertions about a page's own requests are unaffected.
+    if (new URL(request.url()).pathname === '/api/notifications' && authorization.startsWith('Bearer mock-access-')) {
+      return route.fulfill({ headers: CORS, json: { content: [], page: 0, size: 20, totalElements: 0, totalPages: 0 } });
+    }
     apiAuthorizations.push(authorization);
     if (!authorization.startsWith('Bearer mock-access-')) {
       return route.fulfill({ status: 401, headers: CORS });
