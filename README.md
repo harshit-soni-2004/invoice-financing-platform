@@ -168,6 +168,7 @@ npm run e2e:ui         # Playwright UI checks at desktop and phone sizes (uses t
 npx ng serve --host localhost              # in a separate terminal
 $env:IFP_STACK = '1'; $env:UI_BASE_URL = 'http://localhost:4200'
 # $env:IFP_GATEWAY_URL = 'http://localhost:18080'   # only if the gateway is not on :8080
+# $env:IFP_AUTH_URL = 'http://localhost:19000'      # only if auth-service is not on :9000 (must match authIssuer in config.json)
 npx playwright test e2e/auth.live.spec.ts
 npx playwright test e2e/register.live.spec.ts
 npx playwright test e2e/seller-invoices.live.spec.ts
