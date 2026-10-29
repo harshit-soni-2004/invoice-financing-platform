@@ -56,10 +56,8 @@ export const routes: Routes = [
   },
   {
     path: 'financier',
-    title: 'Financier workspace · Invoice Financing',
     canActivate: [roleGuard('FINANCIER')],
-    data: { area: 'FINANCIER' },
-    loadComponent: workspace,
+    loadChildren: () => import('./features/financier/financier.routes').then((m) => m.FINANCIER_ROUTES),
   },
   {
     path: 'admin',
