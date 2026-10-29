@@ -105,6 +105,28 @@ export class InvoiceApiService {
     return versioned(response);
   }
 
+  /** Replaces a DRAFT's details. invoice-service requires If-Match here (428 without it). */
+  async update(id: string, draft: InvoiceDraft, etag: string): Promise<VersionedInvoice> {
+    const response = await call(
+      this.http.put<unknown>(`${this.url}/${encodeURIComponent(id)}`, draft, {
+        observe: 'response',
+        headers: new HttpHeaders({ 'If-Match': etag }),
+      }),
+    );
+    return versioned(response);
+  }
+
+  /** Cancels the invoice at the version the seller was looking at; the reason is optional. */
+  async cancel(id: string, etag: string, reason: string | null): Promise<VersionedInvoice> {
+    const response = await call(
+      this.http.post<unknown>(`${this.url}/${encodeURIComponent(id)}/cancel`, reason ? { reason } : null, {
+        observe: 'response',
+        headers: new HttpHeaders({ 'If-Match': etag }),
+      }),
+    );
+    return versioned(response);
+  }
+
   /** An administrator's verification step, with the same version check. Only `reject` has a body: the reason. */
   async review(action: ReviewAction, id: string, etag: string, reason?: string): Promise<VersionedInvoice> {
     const response = await call(

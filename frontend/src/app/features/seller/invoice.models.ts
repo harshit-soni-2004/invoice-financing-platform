@@ -71,6 +71,15 @@ export const SELLER_ACTION_FROM: Readonly<Record<SellerAction, InvoiceStatus>> =
   'list-for-financing': 'VERIFIED',
 };
 
+/** Only drafts can be edited (InvoiceService.update). */
+export const EDITABLE_FROM: readonly InvoiceStatus[] = ['DRAFT'];
+
+/** The statuses InvoiceStatus allows to move to CANCELLED. */
+export const CANCELLABLE_FROM: readonly InvoiceStatus[] = ['DRAFT', 'SUBMITTED', 'VERIFIED'];
+
+/** invoice-service's limit on a cancellation reason (CancelInvoiceRequest). */
+export const CANCEL_REASON_MAX = 500;
+
 /** The administrator's verification steps, keyed by the statuses each one may start from. */
 export type ReviewAction = 'buyer-confirmation' | 'verify' | 'reject';
 

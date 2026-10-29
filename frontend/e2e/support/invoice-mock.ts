@@ -48,6 +48,7 @@ const TRANSITIONS: Record<string, [from: string[], to: string, stamp: keyof Stor
   'buyer-confirmation': [['SUBMITTED'], 'BUYER_CONFIRMED', 'buyerConfirmedAt'],
   verify: [['BUYER_CONFIRMED'], 'VERIFIED', 'verifiedAt'],
   reject: [['SUBMITTED', 'BUYER_CONFIRMED'], 'REJECTED', null],
+  cancel: [['DRAFT', 'SUBMITTED', 'VERIFIED'], 'CANCELLED', null],
 };
 
 function summary({ id, invoiceNumber, buyerName, amount, currency, dueDate, status, createdAt }: StoredInvoice) {
@@ -164,6 +165,10 @@ export async function mockInvoices(page: Page, seed: StoredInvoice[] = []): Prom
           return reply(route, 400, problem(400, 'VALIDATION_FAILED', { errors: [{ field: 'reason', message: 'must not be blank' }] }));
         }
       }
+      if (action === 'cancel') {
+        const body = request.postData() ? (request.postDataJSON() as { reason?: unknown } | null) : null;
+        reason = typeof body?.reason === 'string' && body.reason.trim() !== '' ? body.reason.trim() : null;
+      }
       const now = new Date().toISOString();
       Object.assign(
         found,
@@ -171,6 +176,35 @@ export async function mockInvoices(page: Page, seed: StoredInvoice[] = []): Prom
         stamp ? { [stamp]: now } : {},
         reason ? { statusReason: reason } : {},
       );
+      return reply(route, 200, found, { ETag: `"${found.version}"` });
+    }
+    // Replacing a draft: If-Match is mandatory here, as in InvoiceController.update.
+    if (request.method() === 'PUT' && found && !action) {
+      const ifMatch = await request.headerValue('if-match');
+      if (!ifMatch) {
+        return reply(route, 428, problem(428, 'IF_MATCH_REQUIRED'));
+      }
+      if (ifMatch !== `"${found.version}"`) {
+        return reply(route, 412, problem(412, 'VERSION_MISMATCH', { currentETag: `"${found.version}"` }));
+      }
+      if (found.status !== 'DRAFT') {
+        return reply(route, 409, problem(409, 'INVOICE_NOT_EDITABLE'));
+      }
+      const body = request.postDataJSON() as Record<string, unknown>;
+      if (invoices.some((invoice) => invoice.id !== found.id && invoice.invoiceNumber === body['invoiceNumber'])) {
+        return reply(route, 409, problem(409, 'DUPLICATE_INVOICE_NUMBER'));
+      }
+      Object.assign(found, {
+        invoiceNumber: String(body['invoiceNumber']),
+        buyerName: String(body['buyerName']),
+        buyerGstin: (body['buyerGstin'] as string | null) ?? null,
+        description: (body['description'] as string | null) ?? null,
+        amount: Number(body['amount']),
+        issueDate: String(body['issueDate']),
+        dueDate: String(body['dueDate']),
+        version: found.version + 1,
+        updatedAt: new Date().toISOString(),
+      });
       return reply(route, 200, found, { ETag: `"${found.version}"` });
     }
     return reply(route, 404, problem(404, 'INVOICE_NOT_FOUND'));
