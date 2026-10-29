@@ -50,6 +50,17 @@ class NotificationFlowIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void migrationsIndexReadStateAndProcessedEventsRetention() {
+        assertThat(jdbc.queryForList(
+                "select version from flyway_schema_history where success = 1 and version is not null order by installed_rank",
+                String.class)).containsExactly("1", "700", "701");
+        assertThat(jdbc.queryForList("""
+                select distinct index_name from information_schema.statistics
+                where table_schema = database() and table_name in ('processed_events', 'notifications')""", String.class))
+                .contains("ix_processed_events_processed_at", "ix_notifications_recipient_read");
+    }
+
+    @Test
     void registeredUserGetsWelcomeMailAndLaterDealMailsExactlyOnce() throws Exception {
         UUID seller = UUID.randomUUID();
         String email = "seller-" + seller.toString().substring(0, 8) + "@example.test";
