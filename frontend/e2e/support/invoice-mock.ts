@@ -42,9 +42,12 @@ export interface InvoiceMock {
   setDelay(ms: number): void;
 }
 
-const TRANSITIONS: Record<string, [from: string, to: string, stamp: keyof StoredInvoice | null]> = {
-  submit: ['DRAFT', 'SUBMITTED', 'submittedAt'],
-  'list-for-financing': ['VERIFIED', 'FINANCING_AVAILABLE', null],
+const TRANSITIONS: Record<string, [from: string[], to: string, stamp: keyof StoredInvoice | null]> = {
+  submit: [['DRAFT'], 'SUBMITTED', 'submittedAt'],
+  'list-for-financing': [['VERIFIED'], 'FINANCING_AVAILABLE', null],
+  'buyer-confirmation': [['SUBMITTED'], 'BUYER_CONFIRMED', 'buyerConfirmedAt'],
+  verify: [['BUYER_CONFIRMED'], 'VERIFIED', 'verifiedAt'],
+  reject: [['SUBMITTED', 'BUYER_CONFIRMED'], 'REJECTED', null],
 };
 
 function summary({ id, invoiceNumber, buyerName, amount, currency, dueDate, status, createdAt }: StoredInvoice) {
@@ -53,7 +56,8 @@ function summary({ id, invoiceNumber, buyerName, amount, currency, dueDate, stat
 
 /**
  * A small stand-in for invoice-service behind the gateway: one seller's invoices in memory, strong ETags carrying the
- * version, If-Match checks, and the seller's DRAFT -> SUBMITTED and VERIFIED -> FINANCING_AVAILABLE transitions.
+ * version, If-Match checks, the seller's DRAFT -> SUBMITTED and VERIFIED -> FINANCING_AVAILABLE transitions, and the
+ * administrator's buyer confirmation, verification and rejection (with a required reason). Roles are not checked.
  * Register it after mockAuth so it takes precedence for /api/invoices.
  */
 export async function mockInvoices(page: Page, seed: StoredInvoice[] = []): Promise<InvoiceMock> {
@@ -149,11 +153,24 @@ export async function mockInvoices(page: Page, seed: StoredInvoice[] = []): Prom
         return reply(route, 412, problem(412, 'VERSION_MISMATCH', { currentETag: `"${found.version}"` }));
       }
       const [from, to, stamp] = TRANSITIONS[action];
-      if (found.status !== from) {
+      if (!from.includes(found.status)) {
         return reply(route, 409, problem(409, 'INVALID_STATUS_TRANSITION', { currentStatus: found.status, requestedStatus: to }));
       }
+      let reason: string | null = null;
+      if (action === 'reject') {
+        const body = request.postDataJSON() as { reason?: unknown } | null;
+        reason = typeof body?.reason === 'string' ? body.reason.trim() : '';
+        if (!reason || reason.length > 500) {
+          return reply(route, 400, problem(400, 'VALIDATION_FAILED', { errors: [{ field: 'reason', message: 'must not be blank' }] }));
+        }
+      }
       const now = new Date().toISOString();
-      Object.assign(found, { status: to, version: found.version + 1, updatedAt: now }, stamp ? { [stamp]: now } : {});
+      Object.assign(
+        found,
+        { status: to, version: found.version + 1, updatedAt: now },
+        stamp ? { [stamp]: now } : {},
+        reason ? { statusReason: reason } : {},
+      );
       return reply(route, 200, found, { ETag: `"${found.version}"` });
     }
     return reply(route, 404, problem(404, 'INVOICE_NOT_FOUND'));

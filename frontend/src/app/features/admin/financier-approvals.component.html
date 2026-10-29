@@ -1,0 +1,117 @@
+<section class="page">
+  <header class="page-header">
+    <div>
+      <h1>Financier approvals</h1>
+      <p class="subtitle">New financier accounts cannot sign in until an administrator approves them.</p>
+    </div>
+    <button type="button" class="btn btn-secondary" (click)="refresh()" [disabled]="loading() || acting() !== null">
+      Refresh
+    </button>
+  </header>
+
+  <ifp-admin-nav />
+
+  <p class="alert alert-info intro">
+    Approving an account lets the financier sign in and make offers. Declining an application is not available in the
+    platform yet.
+  </p>
+
+  @if (notice(); as notice) {
+    @if (notice.tone === 'success') {
+      <div #noticeBox class="alert alert-success notice" role="status" tabindex="-1">{{ notice.message }}</div>
+    } @else {
+      <div #noticeBox [class]="'alert alert-' + notice.tone + ' notice'" role="alert" tabindex="-1">{{ notice.message }}</div>
+    }
+  }
+
+  <div class="toolbar">
+    <p class="muted summary" aria-live="polite">
+      @if (loading()) {
+        Loading pending accounts…
+      } @else if (result(); as r) {
+        {{ r.totalElements }} {{ r.totalElements === 1 ? 'account' : 'accounts' }} waiting for approval
+      }
+    </p>
+  </div>
+
+  @if (loading()) {
+    <div class="card placeholder" aria-hidden="true">
+      <div class="bar"></div>
+      <div class="bar"></div>
+      <div class="bar"></div>
+    </div>
+  } @else if (errorMessage(); as message) {
+    <div class="alert alert-danger stack" role="alert">
+      <p>The pending accounts could not be loaded. {{ message }}</p>
+      <div>
+        <button type="button" class="btn btn-secondary btn-sm" (click)="refresh()">Try again</button>
+      </div>
+    </div>
+  } @else if (result(); as result) {
+    @if (result.content.length === 0) {
+      <div class="card stack empty">
+        <h2>No accounts are waiting</h2>
+        <p class="muted">New financier registrations will appear here for approval.</p>
+      </div>
+    } @else {
+      <div class="table-wrap">
+        <table class="table">
+          <caption class="visually-hidden">Financier accounts waiting for approval, newest first</caption>
+          <thead>
+            <tr>
+              <th scope="col">Name</th>
+              <th scope="col">Email</th>
+              <th scope="col">Registered</th>
+              <th scope="col">Status</th>
+              <th scope="col"><span class="visually-hidden">Action</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (user of result.content; track user.id) {
+              <tr>
+                <td data-label="Name" class="wrap">{{ user.displayName }}</td>
+                <td data-label="Email" class="wrap">{{ user.email }}</td>
+                <td data-label="Registered">{{ formatInstant(user.createdAt) }}</td>
+                <td data-label="Status">
+                  @let status = badgeFor(user);
+                  <span [class]="status.badge">{{ status.label }}</span>
+                </td>
+                <td data-label="Action" class="row-action">
+                  @if (outcomeOf(user) === null) {
+                    <button
+                      type="button"
+                      class="btn btn-primary btn-sm"
+                      [disabled]="!canApprove(user)"
+                      [attr.aria-label]="'Approve ' + user.displayName"
+                      (click)="approve(user)"
+                    >
+                      {{ acting() === user.id ? 'Approving…' : 'Approve' }}
+                    </button>
+                  } @else {
+                    <span class="muted">No action</span>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+
+      @if (result.totalPages > 1) {
+        <nav class="pagination cluster" aria-label="Pending account pages">
+          @if (result.page > 0) {
+            <a class="btn btn-secondary btn-sm" routerLink="." [queryParams]="pageLink(result.page - 1)" queryParamsHandling="merge">
+              Previous
+            </a>
+          }
+          <span class="muted">Page {{ result.page + 1 }} of {{ result.totalPages }}</span>
+          @if (result.page + 1 < result.totalPages) {
+            <a class="btn btn-secondary btn-sm" routerLink="." [queryParams]="pageLink(result.page + 1)" queryParamsHandling="merge">
+              Next
+            </a>
+          }
+        </nav>
+      }
+    }
+  }
+</section>

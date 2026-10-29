@@ -1,0 +1,109 @@
+<section class="page">
+  <header class="page-header">
+    <div>
+      <h1>Invoice queue</h1>
+      <p class="subtitle">Confirm submitted invoices with the buyer, then verify them before they can be financed.</p>
+    </div>
+    <button type="button" class="btn btn-secondary" (click)="refresh()" [disabled]="loading()">Refresh</button>
+  </header>
+
+  <ifp-admin-nav />
+
+  <ul class="stages" aria-label="Review stage">
+    @for (info of stages; track info.stage) {
+      <li>
+        <a
+          class="btn btn-sm"
+          [class.btn-primary]="info.stage === current().stage"
+          [class.btn-secondary]="info.stage !== current().stage"
+          routerLink="."
+          [queryParams]="stageLink(info.stage)"
+          queryParamsHandling="merge"
+          [attr.aria-current]="info.stage === current().stage ? 'true' : null"
+          >{{ info.label }}</a
+        >
+      </li>
+    }
+  </ul>
+
+  <div class="toolbar">
+    <h2>{{ current().label }}</h2>
+    <p class="muted summary" aria-live="polite">
+      @if (loading()) {
+        Loading invoices…
+      } @else if (range(); as r) {
+        Showing {{ r.from }}–{{ r.to }} of {{ r.total }} {{ r.total === 1 ? 'invoice' : 'invoices' }}
+      }
+    </p>
+  </div>
+
+  @if (loading()) {
+    <div class="card placeholder" aria-hidden="true">
+      <div class="bar"></div>
+      <div class="bar"></div>
+      <div class="bar"></div>
+    </div>
+  } @else if (errorMessage(); as message) {
+    <div class="alert alert-danger stack" role="alert">
+      <p>The invoice queue could not be loaded. {{ message }}</p>
+      <div>
+        <button type="button" class="btn btn-secondary btn-sm" (click)="refresh()">Try again</button>
+      </div>
+    </div>
+  } @else if (result(); as result) {
+    @if (result.content.length === 0) {
+      <div class="card stack empty">
+        <h2>Nothing to review</h2>
+        <p class="muted">{{ current().empty }}</p>
+      </div>
+    } @else {
+      <div class="table-wrap">
+        <table class="table">
+          <caption class="visually-hidden">{{ current().label }}, newest first</caption>
+          <thead>
+            <tr>
+              <th scope="col">Invoice</th>
+              <th scope="col">Buyer</th>
+              <th scope="col" class="num">Amount</th>
+              <th scope="col">Due date</th>
+              <th scope="col">Status</th>
+              <th scope="col">Created</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (invoice of result.content; track invoice.id) {
+              <tr>
+                <td data-label="Invoice">
+                  <a class="mono" [routerLink]="['/admin/invoices', invoice.id]" [attr.aria-label]="'Review invoice ' + invoice.invoiceNumber">{{
+                    invoice.invoiceNumber
+                  }}</a>
+                </td>
+                <td data-label="Buyer" class="wrap">{{ invoice.buyerName }}</td>
+                <td data-label="Amount" class="num">{{ formatAmount(invoice.amount, invoice.currency) }}</td>
+                <td data-label="Due date">{{ formatDate(invoice.dueDate) }}</td>
+                <td data-label="Status"><ifp-status-badge [status]="invoice.status" /></td>
+                <td data-label="Created">{{ formatInstant(invoice.createdAt) }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+
+      @if (result.totalPages > 1) {
+        <nav class="pagination cluster" aria-label="Queue pages">
+          @if (result.page > 0) {
+            <a class="btn btn-secondary btn-sm" routerLink="." [queryParams]="pageLink(result.page - 1)" queryParamsHandling="merge">
+              Previous
+            </a>
+          }
+          <span class="muted">Page {{ result.page + 1 }} of {{ result.totalPages }}</span>
+          @if (result.page + 1 < result.totalPages) {
+            <a class="btn btn-secondary btn-sm" routerLink="." [queryParams]="pageLink(result.page + 1)" queryParamsHandling="merge">
+              Next
+            </a>
+          }
+        </nav>
+      }
+    }
+  }
+</section>

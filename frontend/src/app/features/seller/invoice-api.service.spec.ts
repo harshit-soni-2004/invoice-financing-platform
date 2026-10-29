@@ -112,6 +112,29 @@ describe('InvoiceApiService', () => {
     expect((await listing).invoice.status).toBe('FINANCING_AVAILABLE');
   });
 
+  it('sends review steps with If-Match, and a reason only when rejecting', async () => {
+    const confirm = api.review('buyer-confirmation', 'id-1', '"1"');
+    const confirmRequest = http.expectOne(`${URL}/id-1/buyer-confirmation`);
+    expect(confirmRequest.request.method).toBe('POST');
+    expect(confirmRequest.request.headers.get('If-Match')).toBe('"1"');
+    expect(confirmRequest.request.body).toBeNull();
+    confirmRequest.flush(invoiceFixture({ status: 'BUYER_CONFIRMED', version: 2 }), { headers: new HttpHeaders({ ETag: '"2"' }) });
+    expect(await confirm).toEqual(jasmine.objectContaining({ etag: '"2"' }));
+
+    const verify = api.review('verify', 'id-1', '"2"');
+    const verifyRequest = http.expectOne(`${URL}/id-1/verify`);
+    expect(verifyRequest.request.body).toBeNull();
+    verifyRequest.flush(invoiceFixture({ status: 'VERIFIED', version: 3 }));
+    expect((await verify).invoice.status).toBe('VERIFIED');
+
+    const reject = api.review('reject', 'id-2', '"4"', 'Buyer denies the debt');
+    const rejectRequest = http.expectOne(`${URL}/id-2/reject`);
+    expect(rejectRequest.request.headers.get('If-Match')).toBe('"4"');
+    expect(rejectRequest.request.body).toEqual({ reason: 'Buyer denies the debt' });
+    rejectRequest.flush(invoiceFixture({ status: 'REJECTED', version: 5, statusReason: 'Buyer denies the debt' }));
+    expect((await reject).invoice.statusReason).toBe('Buyer denies the debt');
+  });
+
   describe('maps failures from the gateway and invoice-service', () => {
     const cases: [string, number, object | null, Record<string, string>, InvoiceFailure][] = [
       ['a network failure', 0, null, {}, { kind: 'network' }],

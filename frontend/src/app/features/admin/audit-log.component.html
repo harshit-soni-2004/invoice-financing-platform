@@ -1,0 +1,226 @@
+<section class="page">
+  <header class="page-header">
+    <div>
+      <h1>Audit log</h1>
+      <p class="subtitle">A read-only record of platform events, newest first. Times are in your local time zone.</p>
+    </div>
+    <button type="button" class="btn btn-secondary" (click)="refresh()" [disabled]="loading()">Refresh</button>
+  </header>
+
+  <ifp-admin-nav />
+
+  <form class="card filters" [formGroup]="form" (ngSubmit)="apply()" novalidate aria-labelledby="audit-filters-title">
+    <h2 id="audit-filters-title">Filters</h2>
+    <div class="filter-grid">
+      <div class="field">
+        <label for="audit-eventType">Event type</label>
+        <input
+          id="audit-eventType"
+          class="input mono"
+          type="text"
+          formControlName="eventType"
+          autocomplete="off"
+          spellcheck="false"
+          maxlength="60"
+          [attr.aria-invalid]="error('eventType') ? 'true' : null"
+          [attr.aria-describedby]="describedBy('eventType', 'audit-eventType-hint')"
+        />
+        <p class="hint" id="audit-eventType-hint">For example InvoiceVerified.</p>
+        @if (error('eventType'); as message) {
+          <p class="error" id="audit-eventType-error">{{ message }}</p>
+        }
+      </div>
+      <div class="field">
+        <label for="audit-aggregateType">Record type</label>
+        <input
+          id="audit-aggregateType"
+          class="input mono"
+          type="text"
+          formControlName="aggregateType"
+          autocomplete="off"
+          spellcheck="false"
+          maxlength="60"
+          [attr.aria-invalid]="error('aggregateType') ? 'true' : null"
+          [attr.aria-describedby]="describedBy('aggregateType', 'audit-aggregateType-hint')"
+        />
+        <p class="hint" id="audit-aggregateType-hint">For example Invoice.</p>
+        @if (error('aggregateType'); as message) {
+          <p class="error" id="audit-aggregateType-error">{{ message }}</p>
+        }
+      </div>
+      <div class="field">
+        <label for="audit-aggregateId">Record ID</label>
+        <input
+          id="audit-aggregateId"
+          class="input mono"
+          type="text"
+          formControlName="aggregateId"
+          autocomplete="off"
+          spellcheck="false"
+          maxlength="64"
+          [attr.aria-invalid]="error('aggregateId') ? 'true' : null"
+          [attr.aria-describedby]="describedBy('aggregateId', 'audit-aggregateId-hint')"
+        />
+        <p class="hint" id="audit-aggregateId-hint">The ID of the invoice, offer or user.</p>
+        @if (error('aggregateId'); as message) {
+          <p class="error" id="audit-aggregateId-error">{{ message }}</p>
+        }
+      </div>
+      <div class="field">
+        <label for="audit-actorId">Actor (user ID)</label>
+        <input
+          id="audit-actorId"
+          class="input mono"
+          type="text"
+          formControlName="actorId"
+          autocomplete="off"
+          spellcheck="false"
+          maxlength="36"
+          [attr.aria-invalid]="error('actorId') ? 'true' : null"
+          [attr.aria-describedby]="describedBy('actorId', 'audit-actorId-hint')"
+        />
+        <p class="hint" id="audit-actorId-hint">The user who caused the event.</p>
+        @if (error('actorId'); as message) {
+          <p class="error" id="audit-actorId-error">{{ message }}</p>
+        }
+      </div>
+      <div class="field">
+        <label for="audit-from">From</label>
+        <input
+          id="audit-from"
+          class="input"
+          type="datetime-local"
+          formControlName="from"
+          [attr.aria-invalid]="error('from') ? 'true' : null"
+          [attr.aria-describedby]="describedBy('from', 'audit-from-hint')"
+        />
+        <p class="hint" id="audit-from-hint">Included.</p>
+        @if (error('from'); as message) {
+          <p class="error" id="audit-from-error">{{ message }}</p>
+        }
+      </div>
+      <div class="field">
+        <label for="audit-to">Until</label>
+        <input
+          id="audit-to"
+          class="input"
+          type="datetime-local"
+          formControlName="to"
+          [attr.aria-invalid]="error('to') ? 'true' : null"
+          [attr.aria-describedby]="describedBy('to', 'audit-to-hint')"
+        />
+        <p class="hint" id="audit-to-hint">Not included.</p>
+        @if (error('to'); as message) {
+          <p class="error" id="audit-to-error">{{ message }}</p>
+        }
+      </div>
+    </div>
+    <div class="cluster">
+      <button type="submit" class="btn btn-primary">Apply filters</button>
+      <button type="button" class="btn btn-ghost" (click)="clear()">Clear filters</button>
+    </div>
+  </form>
+
+  <div class="toolbar">
+    <p class="muted summary" aria-live="polite">
+      @if (loading()) {
+        Loading events…
+      } @else if (range(); as r) {
+        Showing {{ r.from }}–{{ r.to }} of {{ r.total }} {{ r.total === 1 ? 'event' : 'events' }}
+      }
+    </p>
+  </div>
+
+  @if (loading()) {
+    <div class="card placeholder" aria-hidden="true">
+      <div class="bar"></div>
+      <div class="bar"></div>
+      <div class="bar"></div>
+    </div>
+  } @else if (errorMessage(); as message) {
+    <div class="alert alert-danger stack" role="alert">
+      <p>The audit log could not be loaded. {{ message }}</p>
+      <div>
+        <button type="button" class="btn btn-secondary btn-sm" (click)="refresh()">Try again</button>
+      </div>
+    </div>
+  } @else if (result(); as result) {
+    @if (result.content.length === 0) {
+      <div class="card stack empty">
+        @if (filtered()) {
+          <h2>No events match these filters</h2>
+          <p class="muted">Try a wider time range or fewer filters.</p>
+          <div class="cluster">
+            <button type="button" class="btn btn-secondary" (click)="clear()">Show all events</button>
+          </div>
+        } @else {
+          <h2>No events recorded yet</h2>
+          <p class="muted">Events appear here as people register, submit invoices and make offers.</p>
+        }
+      </div>
+    } @else {
+      <ol class="events" aria-label="Audit events, newest first">
+        @for (event of result.content; track event.id) {
+          <li class="card event">
+            <div class="event-head">
+              <span class="mono event-type">{{ event.eventType }}</span>
+              <time class="muted" [attr.datetime]="event.occurredAt">{{ formatInstant(event.occurredAt) }}</time>
+            </div>
+            <dl class="event-meta">
+              <div>
+                <dt>Record</dt>
+                <dd class="mono">{{ event.aggregateType }} {{ event.aggregateId }}</dd>
+              </div>
+              <div>
+                <dt>Actor</dt>
+                <dd class="mono">{{ event.actorId ?? 'System' }}</dd>
+              </div>
+              <div>
+                <dt>Source</dt>
+                <dd>{{ event.producer }}</dd>
+              </div>
+            </dl>
+            <details>
+              <summary>Event details</summary>
+              <dl class="event-meta">
+                <div>
+                  <dt>Event ID</dt>
+                  <dd class="mono">{{ event.eventId }}</dd>
+                </div>
+                <div>
+                  <dt>Correlation ID</dt>
+                  <dd class="mono">{{ event.correlationId ?? 'None' }}</dd>
+                </div>
+                <div>
+                  <dt>Recorded</dt>
+                  <dd>{{ formatInstant(event.recordedAt) }}</dd>
+                </div>
+                <div>
+                  <dt>Schema version</dt>
+                  <dd>{{ event.schemaVersion }}</dd>
+                </div>
+              </dl>
+              <pre class="payload">{{ payloadText(event) }}</pre>
+            </details>
+          </li>
+        }
+      </ol>
+
+      @if (result.totalPages > 1) {
+        <nav class="pagination cluster" aria-label="Audit log pages">
+          @if (result.page > 0) {
+            <a class="btn btn-secondary btn-sm" routerLink="." [queryParams]="pageLink(result.page - 1)" queryParamsHandling="merge">
+              Previous
+            </a>
+          }
+          <span class="muted">Page {{ result.page + 1 }} of {{ result.totalPages }}</span>
+          @if (hasNext()) {
+            <a class="btn btn-secondary btn-sm" routerLink="." [queryParams]="pageLink(result.page + 1)" queryParamsHandling="merge">
+              Next
+            </a>
+          }
+        </nav>
+      }
+    }
+  }
+</section>

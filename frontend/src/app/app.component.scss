@@ -123,6 +123,11 @@ main {
   }
 }
 
+.nav-count {
+  margin-left: var(--space-1);
+  vertical-align: middle;
+}
+
 .nav-actions {
   display: flex;
   flex-wrap: wrap;
