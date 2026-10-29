@@ -1,16 +1,168 @@
 # Invoice Financing Platform
 
-[![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/OWNER/REPO/actions/workflows/ci.yml) <!-- Replace OWNER/REPO once the GitHub remote exists. -->
+[![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/OWNER/REPO/actions/workflows/ci.yml)
 
-A portfolio-quality **simulation** of invoice financing: sellers submit invoices, financiers make offers, accepted offers are disbursed (simulated), and repayments are recorded until settlement.
+An event-driven microservices platform, built with Spring Boot and Angular, where sellers get early payment on their invoices and financiers compete to fund them.
 
-> No real banking, payment gateway or money movement is involved. All amounts are in INR and handled as `BigDecimal` / `DECIMAL(19,2)`.
+## What problem it solves
 
-**Status:** Phase 5 is complete, and Phase 6 (the Angular app) is in progress: users can register and sign in, sellers can add, edit, cancel, follow and submit their invoices, accept or reject offers and record repayments, financiers can make offers and approve and disburse their agreements, administrators have an admin console, and every role sees its notifications. auth-service issues RS256 tokens through Authorization Code + PKCE, the gateway validates them, routes `/api/**`, applies CORS and Redis rate limits, and each service validates every token again itself. financing-service implements offers from competing financiers, agreements with an explicit state machine, idempotent simulated disbursement, repayment schedules, partial and full repayments, overdue tracking and settlement. Services exchange events over RabbitMQ through a transactional outbox, with idempotent consumers, bounded retries and dead-letter queues. Listed invoices reach financing-service's read model, disbursement and settlement update the invoice, notification-service emails the parties through MailHog, and audit-service keeps an append-only trail of every event. See [docs/architecture.md](docs/architecture.md) for the design, the financial rules and the roadmap.
+A business that sells on credit waits 30 to 90 days for its buyers to pay, while its own costs are due now. Invoice financing lets that seller raise cash against unpaid invoices: a financier advances most of the invoice amount today and is repaid, with a fee, by the due date. This platform models the whole flow. Sellers upload invoices, the platform verifies them (buyer confirmation and document checks), several financiers compete with offers, and the accepted offer becomes an agreement. The platform then handles approval, disbursement, the repayment schedule, overdue tracking with penalty interest, settlement, notifications and a tamper-resistant audit trail.
 
-## Stack
+> This is a portfolio **simulation**. No real banking, payment gateway or money movement is involved: disbursements and repayments are records, not transfers. All amounts are in INR and handled as `BigDecimal` / `DECIMAL(19,2)`.
 
-Java 21 · Spring Boot 3.5 · Spring Cloud Gateway 2025.0 · Spring Authorization Server · MySQL 8.4 · Flyway · RabbitMQ 4.1 · Redis 7.4 · MailHog · Angular 21 · Docker Compose · Testcontainers · GitHub Actions
+## Key features
+
+**Seller**
+- Registers and signs in through the platform's own OAuth2 server.
+- Creates, edits and cancels draft invoices, submits them for verification and lists verified invoices for financing.
+- Compares competing offers (advance, rate, fee, installments, expiry), then accepts one or rejects them with a reason. Accepting closes every other open offer.
+- Follows the agreement, the simulated disbursement and the repayment schedule (paid, overdue, penalty interest), and records repayments safely: a retry is recognised, not recorded twice.
+
+**Financier**
+- Registers and waits for an administrator's approval before signing in.
+- Browses invoices open for financing and makes offers within configurable bounds, or withdraws them.
+- Approves agreements and disburses the advance exactly once, then tracks repayments and overdue installments.
+
+**Administrator**
+- Works a verification queue: records buyer confirmation, verifies invoices or rejects them with a reason.
+- Approves financier accounts.
+- Searches the read-only audit trail by event type, record, actor and time range.
+
+Every role gets in-app notifications, and notification-service emails the parties (to a local MailHog inbox).
+
+## Architecture
+
+Six Spring Boot services behind a gateway, each with its own MySQL database and database user. They change each other's state only through events on RabbitMQ, never through direct calls or shared tables. Full design, state machines, financial rules and event contracts: [docs/architecture.md](docs/architecture.md).
+
+```mermaid
+flowchart LR
+    SPA["Angular 21 SPA<br/>:4200"]
+
+    subgraph Edge
+        GW["gateway :8080<br/>Spring Cloud Gateway<br/>JWT check · CORS · rate limit · correlation ID"]
+    end
+
+    subgraph Services
+        AUTH["auth-service :9000<br/>Spring Authorization Server<br/>users · roles · JWK"]
+        INV["invoice-service :8081"]
+        FIN["financing-service :8082"]
+        NOTIF["notification-service :8083"]
+        AUD["audit-service :8084"]
+    end
+
+    subgraph Infrastructure
+        MQ[("RabbitMQ<br/>topic exchange ifp.events")]
+        DB[("MySQL 8.4<br/>one database per service")]
+        REDIS[("Redis<br/>rate-limit buckets")]
+        MAIL["MailHog<br/>SMTP sink"]
+    end
+
+    SPA -- "OAuth2 Authorization Code + PKCE<br/>(login page)" --> AUTH
+    SPA -- "REST + Bearer JWT" --> GW
+    GW --> AUTH & INV & FIN & NOTIF & AUD
+    GW -.-> REDIS
+    INV & FIN & NOTIF & AUD -. "fetch JWK set (cached)" .-> AUTH
+
+    AUTH -- outbox --> MQ
+    INV -- outbox --> MQ
+    FIN -- outbox --> MQ
+    MQ --> INV & FIN & NOTIF & AUD
+    NOTIF --> MAIL
+    AUTH & INV & FIN & NOTIF & AUD --> DB
+```
+
+## Engineering highlights
+
+- **Own OAuth2 / OIDC server.** auth-service is built on Spring Authorization Server. The Angular app is a public client using Authorization Code + PKCE (S256, enforced), access tokens are RS256 JWTs (15 minutes, keys published as a JWK set with RFC 7638 key IDs), and `iss`, `aud`, `exp` and the algorithm are validated by the gateway **and** again by every service.
+- **Transactional outbox with idempotent consumers.** Business rows and their events commit in one local transaction. A relay publishes them with `FOR UPDATE SKIP LOCKED` and publisher confirms, and consumers record each event ID in `processed_events` in the same transaction as their effect, so duplicate deliveries do nothing.
+- **Delayed retry queues and dead-letter queues.** Failed events move through 10 s, 1 min and 10 min TTL retry tiers without blocking a consumer thread, then land in a per-queue DLQ. Malformed or business-invalid events go straight to the DLQ. Unroutable events are parked, not lost.
+- **Idempotent money operations with row locking.** Disbursement and repayment require an `Idempotency-Key`. The agreement (and installment) rows are locked with `SELECT … FOR UPDATE`, the idempotency record commits with the business change, and replays return the original result with `Idempotent-Replayed: true`. Unique constraints are the final guard against paying or financing twice.
+- **Optimistic locking with ETag / If-Match.** Invoice responses carry the row version as a strong `ETag`. Edits require `If-Match`, so a stale write gets `412` instead of overwriting someone else's change, backed by JPA `@Version`.
+- **Append-only audit trail enforced by the database.** audit-service records every event with its correlation ID. Its runtime database user has only `SELECT` and `INSERT`, and migrations run as a separate user, so the application cannot alter or delete history.
+- **Penalty interest.** Overdue installments accrue a simple daily penalty with a cap, charged exactly once per day even when sweeps overlap (primary key per installment and day, plus row locks). Repayments pay penalty, then fee, then principal.
+- **Rate limiting.** The gateway uses Redis token buckets per validated user (or hashed client address), with an explicit fail-open or fail-closed choice per route. auth-service throttles logins per address and per address + username pair.
+
+## Tech stack
+
+| Area | Technologies |
+|---|---|
+| Backend | Java 21, Spring Boot 3.5, Spring Security, Spring Authorization Server, Spring Cloud Gateway 2025.0, Spring Data JPA, Flyway |
+| Messaging and data | RabbitMQ 4.1, MySQL 8.4, Redis 7.4, MailHog (SMTP sink) |
+| Frontend | Angular 21 (standalone components, signals, zoneless), TypeScript (strict), SCSS |
+| Testing | JUnit 5, Mockito, Testcontainers, Karma + Jasmine, Playwright |
+| Delivery | Docker (multi-stage, non-root images), Docker Compose, GitHub Actions, Trivy, SPDX SBOMs, Dependabot |
+
+## Testing
+
+Test cases declared in the source on `main` (counted from `@Test` / `@ParameterizedTest`, `it(` and `test(`; parameterized tests run several cases each):
+
+| Suite | Files | Test cases |
+|---|---|---|
+| Java unit tests (`*Test`, `*Tests`) | 34 | 166 |
+| Java integration tests (`*IT`, Testcontainers with real MySQL, RabbitMQ, Redis and MailHog) | 39 | 217 |
+| Angular unit tests (Karma + Jasmine) | 40 | 284 |
+| Playwright UI tests with a mocked backend, desktop and phone viewports | 8 | 53 |
+| Playwright tests against the real services (opt-in) | 3 | 7 |
+
+Two end-to-end programs exercise the running backend:
+- **Smoke test** (`scripts/e2e.ps1`): real sign-in through the login form with PKCE, invoice creation through the gateway, and the negative paths (cross-seller access, wrong role, pending financier, missing PKCE, tampered and `alg=none` tokens rejected by the gateway and by the service directly).
+- **Full business flow** (`scripts/e2e-full.ps1`): on disposable infrastructure, an invoice goes from submission to verification and listing, and a financing deal goes through offer, acceptance, approval, idempotent disbursement, partial and final repayment and settlement. It then checks the emails, the audit trail and that every dead-letter queue is empty.
+
+The last recorded full-stack run (see [docs/PROGRESS.md](docs/PROGRESS.md)) passed the smoke test 25/25 and the business flow 41/41 with a clean log scan, before the seller offers merge. CI runs the Maven build with Testcontainers, the frontend checks, the mocked Playwright suite and a full-stack Compose job. The live Playwright specs have not yet passed against the container stack.
+
+## Quick start
+
+Docker is the only requirement:
+
+```bash
+cp .env.example .env          # then replace every replace-me-* value
+docker compose --profile app up -d --build --wait
+```
+
+Then open the frontend at http://localhost:4200 (gateway on :8080, auth-service on :9000, MailHog on :8025). Details are in [Run everything](#run-everything).
+
+## Project status and roadmap
+
+| Status | Scope |
+|---|---|
+| Done | Foundation and infrastructure; invoice-service; auth-service and gateway; financing-service (offers, agreements, disbursement, repayments, settlement, penalty interest); events, notifications and audit; containers and CI |
+| Done (frontend) | Sign-in and registration; seller invoices, offers, agreement and repayments; financier workflow; admin console; notifications |
+| In progress | Backend gaps (financier rejection, notification read state, delayed retries in the remaining services); frontend follow-ups; live Playwright against the container stack |
+| Planned | Observability (metrics, tracing, dashboards) |
+| Planned | Double-entry ledger |
+| Planned | Risk scoring for invoices and sellers |
+| Planned | AI-assisted invoice data extraction |
+| Planned | Load testing |
+| Planned | Kubernetes deployment |
+
+There is no hosted demo or production deployment; everything runs locally with Docker Compose. Known issues are listed in [docs/PROGRESS.md](docs/PROGRESS.md).
+
+## Screenshots
+
+<!-- TODO: add screenshots of the seller invoice list, offer comparison, financier agreement and admin queue to docs/screenshots/ and link them here. -->
+
+Landing page, light and dark themes (generated by `SCREENSHOTS=1 npm run e2e:ui`):
+
+| Light | Dark |
+|---|---|
+| ![Landing page, light theme](docs/screenshots/landing-light-desktop.png) | ![Landing page, dark theme](docs/screenshots/landing-dark-desktop.png) |
+
+## Branching model
+
+- `main` is stable and tested.
+- `develop` carries ongoing feature work.
+- Feature branches (`feat/...`, `fix/...`) merge into `develop` through pull requests.
+- `develop` merges into `main` once it is verified.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for commit conventions and how to run the tests.
+
+## License
+
+[MIT](LICENSE)
+
+---
+
+# Developer guide
 
 ## Prerequisites
 
