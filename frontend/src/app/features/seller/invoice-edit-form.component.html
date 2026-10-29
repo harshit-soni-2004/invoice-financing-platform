@@ -1,0 +1,149 @@
+<div class="card stack">
+  <header>
+    <h2 id="edit-heading">Edit draft</h2>
+    <p class="muted">Changes are saved only if nobody else changed this draft since you opened it.</p>
+  </header>
+
+  @if (formError(); as message) {
+    <div #errorSummary class="alert alert-danger" role="alert" tabindex="-1">{{ message }}</div>
+  }
+
+  <form
+    class="stack"
+    [formGroup]="form"
+    (ngSubmit)="submit()"
+    novalidate
+    aria-labelledby="edit-heading"
+    [attr.aria-busy]="submitting()"
+  >
+    <div class="form-grid">
+      <div class="field">
+        <label for="inv-number">Invoice number</label>
+        <input
+          id="inv-number"
+          class="input mono"
+          type="text"
+          formControlName="invoiceNumber"
+          autocomplete="off"
+          spellcheck="false"
+          [attr.maxlength]="50"
+          [attr.aria-invalid]="error('invoiceNumber') ? 'true' : null"
+          [attr.aria-describedby]="describedBy('invoiceNumber', 'inv-number-hint')"
+        />
+        <p class="hint" id="inv-number-hint">Letters, digits, "/" and "-", for example INV-2026/014.</p>
+        @if (error('invoiceNumber'); as message) {
+          <p class="error" id="inv-number-error">{{ message }}</p>
+        }
+      </div>
+
+      <div class="field">
+        <label for="inv-amount">Amount (₹)</label>
+        <input
+          id="inv-amount"
+          class="input"
+          type="text"
+          inputmode="decimal"
+          formControlName="amount"
+          autocomplete="off"
+          [attr.aria-invalid]="error('amount') ? 'true' : null"
+          [attr.aria-describedby]="describedBy('amount', 'inv-amount-hint')"
+        />
+        <p class="hint" id="inv-amount-hint">In rupees, up to 2 decimal places, for example 125000.50.</p>
+        @if (error('amount'); as message) {
+          <p class="error" id="inv-amount-error">{{ message }}</p>
+        }
+      </div>
+
+      <div class="field">
+        <label for="inv-buyer">Buyer name</label>
+        <input
+          id="inv-buyer"
+          class="input"
+          type="text"
+          formControlName="buyerName"
+          autocomplete="organization"
+          [attr.maxlength]="200"
+          [attr.aria-invalid]="error('buyerName') ? 'true' : null"
+          [attr.aria-describedby]="describedBy('buyerName')"
+        />
+        @if (error('buyerName'); as message) {
+          <p class="error" id="inv-buyer-error">{{ message }}</p>
+        }
+      </div>
+
+      <div class="field">
+        <label for="inv-gstin">Buyer GSTIN <span class="optional">(optional)</span></label>
+        <input
+          id="inv-gstin"
+          class="input mono"
+          type="text"
+          formControlName="buyerGstin"
+          autocomplete="off"
+          autocapitalize="characters"
+          spellcheck="false"
+          [attr.aria-invalid]="error('buyerGstin') ? 'true' : null"
+          [attr.aria-describedby]="describedBy('buyerGstin', 'inv-gstin-hint')"
+        />
+        <p class="hint" id="inv-gstin-hint">The buyer's 15-character GST number.</p>
+        @if (error('buyerGstin'); as message) {
+          <p class="error" id="inv-gstin-error">{{ message }}</p>
+        }
+      </div>
+
+      <div class="field">
+        <label for="inv-issue-date">Issue date</label>
+        <input
+          id="inv-issue-date"
+          class="input"
+          type="date"
+          formControlName="issueDate"
+          [attr.aria-invalid]="error('issueDate') ? 'true' : null"
+          [attr.aria-describedby]="describedBy('issueDate', 'inv-issue-date-hint')"
+        />
+        <p class="hint" id="inv-issue-date-hint">Cannot be in the future.</p>
+        @if (error('issueDate'); as message) {
+          <p class="error" id="inv-issue-date-error">{{ message }}</p>
+        }
+      </div>
+
+      <div class="field">
+        <label for="inv-due-date">Due date</label>
+        <input
+          id="inv-due-date"
+          class="input"
+          type="date"
+          formControlName="dueDate"
+          [attr.aria-invalid]="error('dueDate') ? 'true' : null"
+          [attr.aria-describedby]="describedBy('dueDate', 'inv-due-date-hint')"
+        />
+        <p class="hint" id="inv-due-date-hint">After the issue date.</p>
+        @if (error('dueDate'); as message) {
+          <p class="error" id="inv-due-date-error">{{ message }}</p>
+        }
+      </div>
+
+      <div class="field span-2">
+        <label for="inv-description">Description <span class="optional">(optional)</span></label>
+        <textarea
+          id="inv-description"
+          class="textarea"
+          rows="3"
+          formControlName="description"
+          [attr.maxlength]="descriptionMax"
+          [attr.aria-invalid]="error('description') ? 'true' : null"
+          [attr.aria-describedby]="describedBy('description')"
+        ></textarea>
+        @if (error('description'); as message) {
+          <p class="error" id="inv-description-error">{{ message }}</p>
+        }
+      </div>
+    </div>
+
+    <div class="cluster actions">
+      <button type="button" class="btn btn-ghost" (click)="discard()" [disabled]="submitting()">Discard changes</button>
+      <button type="submit" class="btn btn-primary submit" [disabled]="submitting()">
+        {{ submitting() ? 'Saving changes…' : 'Save changes' }}
+      </button>
+    </div>
+  </form>
+</div>

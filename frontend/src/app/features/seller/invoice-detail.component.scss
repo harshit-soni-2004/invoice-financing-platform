@@ -58,6 +58,11 @@ h2 {
   }
 }
 
+.financing {
+  display: block;
+  margin-top: var(--space-4);
+}
+
 .milestones {
   display: grid;
   gap: var(--space-2);

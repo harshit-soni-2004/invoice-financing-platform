@@ -1,5 +1,6 @@
 import { Page, expect, test } from '@playwright/test';
 import { mockAuth } from './support/auth-mock';
+import { mockFinancing } from './support/financing-mock';
 import { mockInvoices, storedInvoice } from './support/invoice-mock';
 import { expectNoHorizontalOverflow, screenshot, setTheme } from './support/ui';
 
@@ -126,12 +127,14 @@ test.describe('seller invoices (mocked auth-service and gateway)', () => {
   test('a verified invoice is opened for financing', async ({ page }) => {
     await mockAuth(page, seller);
     await mockInvoices(page, [storedInvoice({ status: 'VERIFIED', version: 3 })]);
+    await mockFinancing(page);
     await page.goto('/seller/invoices/b0000000-0000-4000-8000-000000000001');
 
     await expect(page.getByRole('button', { name: 'Submit for verification' })).toBeDisabled();
     await page.getByRole('button', { name: 'Make available to financiers' }).click();
-    await expect(page.getByRole('status')).toContainText('now open for financing');
+    await expect(page.getByRole('status').filter({ hasText: 'now open for financing' })).toBeVisible();
     await expect(statusBadge(page)).toHaveText('Open for financing');
+    await expect(page.getByRole('region', { name: 'Financing offers' })).toContainText('No offers yet');
   });
 
   test('a failed load can be retried, and unknown invoices are reported', async ({ page }) => {
