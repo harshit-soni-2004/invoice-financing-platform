@@ -282,6 +282,13 @@ Reliability:
 - **Ordering:** events from one producer are published in write order, but there is no ordering across producers or across retries. Consumers therefore compare versions (projection) or check the current status (invoice outcome; a settlement that overtakes its disbursement applies both steps).
 - Exactly-once delivery across services is **not** claimed. A crash between sending an email and committing can resend that email.
 
+### V700 backend additions (supersede the statements above where they differ)
+
+- **`user.rejected` → `UserRejected`** (auth, actor = the admin): payload `userId`, `role`, `reason` (optional, at most 500 characters). Written to the outbox by `POST /api/admin/users/{id}/reject`, which only accepts `PENDING_APPROVAL` accounts. `REJECTED` is terminal: such an account cannot sign in, obtain tokens or be activated. audit-service records the event through its `#` binding. notification-service does not bind `user.rejected`, so no email is sent.
+- **Delayed retries on every consumer queue:** `invoice.financing-events`, `notification.events` and `audit.events` are now declared with `consumerQueueWithRetries`, like `financing.invoice-events`, and no service uses in-listener retry any more. Each has `<queue>.retry.10s`, `.retry.1m` and `.retry.10m` tiers. The main queue and `<queue>.dlq` keep their previous arguments, so existing broker volumes accept the new declarations. The replay procedure above, including `x-ifp-retry-count`, now applies to all four queues. notification and audit publish retry copies with publisher confirms. A notification whose SMTP send keeps failing is now attempted 4 times over about 11 minutes (immediately, then after 10 s, 1 min and 10 min) before it reaches `notification.events.dlq`. Before this change, the 4 attempts happened within about 7 s.
+- **`processed_events.processed_at` index** (`ix_processed_events_processed_at`) now exists in invoice_db (V700) and notification_db (V701) as well as financing_db.
+- **Notification read state** (notification_db V700, `read_at`): `POST /api/notifications/{id}/read` (idempotent; 404 for an unknown or another user's notification), `POST /api/notifications/read-all` (returns `markedRead`) and `GET /api/notifications/unread-count`. All three act on the token subject only. List items append `readAt`.
+
 ## 7. Security decisions
 
 | Topic | Decision |
