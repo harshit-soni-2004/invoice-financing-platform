@@ -35,10 +35,24 @@ export const routes: Routes = [
   },
   {
     path: 'seller',
-    title: 'Seller workspace · Invoice Financing',
     canActivate: [roleGuard('SELLER')],
-    data: { area: 'SELLER' },
-    loadComponent: workspace,
+    children: [
+      {
+        path: '',
+        title: 'Your invoices · Invoice Financing',
+        loadComponent: () => import('./features/seller/invoice-list.component').then((m) => m.InvoiceListComponent),
+      },
+      {
+        path: 'invoices/new',
+        title: 'New invoice · Invoice Financing',
+        loadComponent: () => import('./features/seller/invoice-create.component').then((m) => m.InvoiceCreateComponent),
+      },
+      {
+        path: 'invoices/:id',
+        title: 'Invoice · Invoice Financing',
+        loadComponent: () => import('./features/seller/invoice-detail.component').then((m) => m.InvoiceDetailComponent),
+      },
+    ],
   },
   {
     path: 'financier',

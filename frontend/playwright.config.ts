@@ -12,6 +12,10 @@ export default defineConfig({
   forbidOnly: !!process.env['CI'],
   retries: 0,
   reporter: [['list']],
+  // A sign-in redirect loads the unbundled dev-server app twice; with several browsers in parallel that alone can take
+  // longer than the 5 s default.
+  expect: { timeout: 15_000 },
+  timeout: 60_000,
   use: {
     baseURL,
     channel: 'chrome',

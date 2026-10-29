@@ -19,7 +19,7 @@ test.describe('sign-in (mocked auth-service and gateway)', () => {
     await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Sign in' }).click();
 
     await expect(page).toHaveURL(/\/seller$/);
-    await expect(page.getByRole('heading', { level: 1, name: 'Seller workspace' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: 'Your invoices' })).toBeVisible();
     await expectNoHorizontalOverflow(page);
 
     await openMenu(page, isMobile);
@@ -31,7 +31,9 @@ test.describe('sign-in (mocked auth-service and gateway)', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Your account' })).toBeVisible();
     await expect(page.getByText('asha@example.test')).toBeVisible();
     await expectNoHorizontalOverflow(page);
-    expect(auth.apiAuthorizations()).toEqual(['Bearer mock-access-1']);
+    // The seller page's invoice list and the account page's profile, both with the one in-memory token.
+    expect(new Set(auth.apiAuthorizations())).toEqual(new Set(['Bearer mock-access-1']));
+    expect(auth.apiAuthorizations().length).toBeGreaterThanOrEqual(2);
 
     const stored = await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }));
     expect(stored).not.toContain('mock-access');

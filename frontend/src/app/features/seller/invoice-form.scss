@@ -1,0 +1,50 @@
+.narrow {
+  max-width: 48rem;
+}
+
+.back {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+}
+
+h1 {
+  margin: 0;
+  outline: none;
+}
+
+header p {
+  margin: var(--space-1) 0 0;
+}
+
+.alert {
+  outline: none;
+}
+
+.field .hint,
+.error {
+  margin: 0;
+}
+
+.optional {
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+
+.textarea {
+  resize: vertical;
+}
+
+.actions {
+  justify-content: flex-end;
+}
+
+.submit {
+  min-width: 10rem;
+}
+
+@media (max-width: 30rem) {
+  .actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+}

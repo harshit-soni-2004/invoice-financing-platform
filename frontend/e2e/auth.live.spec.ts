@@ -54,7 +54,7 @@ test('a seller signs in through auth-service, loads their profile through the ga
 
   await page.goto('/seller');
   await expect(page).toHaveURL(/:4200\/seller$/);
-  await expect(page.getByRole('heading', { level: 1, name: 'Seller workspace' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Your invoices' })).toBeVisible();
 
   if (isMobile) {
     await page.getByRole('button', { name: 'Menu' }).click();

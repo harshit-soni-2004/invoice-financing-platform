@@ -1,0 +1,116 @@
+<section class="page">
+  <p class="back"><a routerLink="/seller">← Back to your invoices</a></p>
+
+  @if (view().kind === 'loading') {
+    <p class="muted" role="status">Loading the invoice…</p>
+  } @else if (errorState(); as error) {
+    <div class="card stack">
+      <h1>{{ error.missing ? 'Invoice not found' : 'The invoice could not be loaded' }}</h1>
+      <div class="alert alert-danger" role="alert">{{ error.message }}</div>
+      <div class="cluster">
+        @if (!error.missing) {
+          <button type="button" class="btn btn-secondary" (click)="refresh()">Try again</button>
+        }
+        <a class="btn btn-ghost" routerLink="/seller">Back to your invoices</a>
+      </div>
+    </div>
+  } @else if (invoice(); as invoice) {
+    <header class="page-header">
+      <div>
+        <h1>
+          Invoice <span class="mono">{{ invoice.invoiceNumber }}</span>
+        </h1>
+        <p class="subtitle cluster">
+          <ifp-status-badge [status]="invoice.status" />
+          <span>{{ formatAmount(invoice.amount, invoice.currency) }} · due {{ formatDate(invoice.dueDate) }}</span>
+        </p>
+      </div>
+      <button type="button" class="btn btn-secondary" (click)="refresh()" [disabled]="acting() !== null">Refresh</button>
+    </header>
+
+    @if (notice(); as notice) {
+      @if (notice.tone === 'success') {
+        <div #noticeBox class="alert alert-success notice" role="status" tabindex="-1">{{ notice.message }}</div>
+      } @else {
+        <div #noticeBox [class]="'alert alert-' + notice.tone + ' notice'" role="alert" tabindex="-1">
+          {{ notice.message }}
+        </div>
+      }
+    }
+
+    <div class="layout">
+      <div class="card stack">
+        <h2>Details</h2>
+        <dl class="details">
+          <div>
+            <dt>Buyer</dt>
+            <dd>{{ invoice.buyerName }}</dd>
+          </div>
+          <div>
+            <dt>Buyer GSTIN</dt>
+            <dd class="mono">{{ invoice.buyerGstin ?? 'Not provided' }}</dd>
+          </div>
+          <div>
+            <dt>Amount</dt>
+            <dd>{{ formatAmount(invoice.amount, invoice.currency) }}</dd>
+          </div>
+          <div>
+            <dt>Issue date</dt>
+            <dd>{{ formatDate(invoice.issueDate) }}</dd>
+          </div>
+          <div>
+            <dt>Due date</dt>
+            <dd>{{ formatDate(invoice.dueDate) }}</dd>
+          </div>
+          <div>
+            <dt>Last updated</dt>
+            <dd>{{ formatInstant(invoice.updatedAt) }}</dd>
+          </div>
+          <div class="wide">
+            <dt>Description</dt>
+            <dd>{{ invoice.description ?? 'None' }}</dd>
+          </div>
+        </dl>
+      </div>
+
+      <div class="stack side">
+        <div class="card stack">
+          <h2>Status</h2>
+          <p class="status-line"><ifp-status-badge [status]="invoice.status" /></p>
+          <p class="muted">{{ statusInfo[invoice.status].next }}</p>
+          @if (invoice.statusReason) {
+            <p><strong>Reason:</strong> {{ invoice.statusReason }}</p>
+          }
+          <ol class="milestones">
+            @for (step of milestones(); track step[0]) {
+              <li>
+                <span>{{ step[0] }}</span>
+                <span class="muted">{{ formatInstant(step[1]) }}</span>
+              </li>
+            }
+          </ol>
+        </div>
+
+        <div class="card stack">
+          <h2>Actions</h2>
+          @for (item of actions; track item.action) {
+            <div class="action">
+              <button
+                type="button"
+                class="btn"
+                [class.btn-primary]="canRun(item.action)"
+                [class.btn-secondary]="!canRun(item.action)"
+                [disabled]="!canRun(item.action)"
+                [attr.aria-describedby]="'action-hint-' + item.action"
+                (click)="run(item)"
+              >
+                {{ acting() === item.action ? item.busyLabel : item.label }}
+              </button>
+              <p class="hint" [id]="'action-hint-' + item.action">{{ item.hint }}</p>
+            </div>
+          }
+        </div>
+      </div>
+    </div>
+  }
+</section>
