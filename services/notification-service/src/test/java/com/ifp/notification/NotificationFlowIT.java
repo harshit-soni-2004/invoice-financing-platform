@@ -20,11 +20,14 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -147,6 +150,94 @@ class NotificationFlowIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void listResponseKeepsItsFieldsAndAppendsReadAt() throws Exception {
+        UUID owner = UUID.randomUUID();
+        UUID eventId = UUID.randomUUID();
+        publish("financing.offer_rejected", envelope(eventId, "FinancingOfferRejected", "OFFER", UUID.randomUUID().toString(),
+                mapper().put("sellerId", UUID.randomUUID().toString()).put("financierId", owner.toString())));
+        await(() -> count("select count(*) from notifications where event_id = UUID_TO_BIN(?)", eventId.toString()) == 1);
+
+        String body = mockMvc.perform(get("/api/notifications").header("Authorization", "Bearer " + TestJwtSupport.financier(owner)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode page = objectMapper.readTree(body);
+        assertThat(fieldNames(page)).containsExactly("content", "page", "size", "totalElements", "totalPages");
+        JsonNode item = page.path("content").get(0);
+        assertThat(fieldNames(item))
+                .containsExactly("id", "eventType", "subject", "status", "skipReason", "createdAt", "sentAt", "readAt");
+        assertThat(item.get("readAt").isNull()).isTrue();
+    }
+
+    @Test
+    void readStateBelongsToTheTokenOwnerAndIsIdempotent() throws Exception {
+        UUID owner = UUID.randomUUID();
+        UUID other = UUID.randomUUID();
+        String ownerToken = "Bearer " + TestJwtSupport.financier(owner);
+        String otherToken = "Bearer " + TestJwtSupport.seller(other);
+        // Disbursement notifies both parties; the offer rejection only the financier (owner).
+        UUID disbursed = UUID.randomUUID();
+        UUID declined = UUID.randomUUID();
+        publish("financing.disbursed", envelope(disbursed, "FinancingDisbursed", "AGREEMENT", UUID.randomUUID().toString(),
+                mapper().put("sellerId", other.toString()).put("financierId", owner.toString())));
+        publish("financing.offer_rejected", envelope(declined, "FinancingOfferRejected", "OFFER", UUID.randomUUID().toString(),
+                mapper().put("sellerId", other.toString()).put("financierId", owner.toString())));
+        await(() -> count("select count(*) from notifications where event_id = UUID_TO_BIN(?)", disbursed.toString()) == 2
+                && count("select count(*) from notifications where event_id = UUID_TO_BIN(?)", declined.toString()) == 1);
+        UUID ownersDisbursement = notificationId(disbursed, owner);
+        UUID othersDisbursement = notificationId(disbursed, other);
+
+        unreadCount(ownerToken, 2);
+        unreadCount(otherToken, 1);
+
+        // Someone else's notification looks exactly like a missing one, and is not modified.
+        mockMvc.perform(post("/api/notifications/{id}/read", ownersDisbursement).header("Authorization", otherToken))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOTIFICATION_NOT_FOUND"));
+        mockMvc.perform(post("/api/notifications/{id}/read", UUID.randomUUID()).header("Authorization", otherToken))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOTIFICATION_NOT_FOUND"));
+        unreadCount(ownerToken, 2);
+
+        String first = mockMvc.perform(post("/api/notifications/{id}/read", ownersDisbursement).header("Authorization", ownerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(ownersDisbursement.toString()))
+                .andExpect(jsonPath("$.readAt").isNotEmpty())
+                .andReturn().getResponse().getContentAsString();
+        String readAt = objectMapper.readTree(first).path("readAt").asText();
+        Thread.sleep(20);
+        mockMvc.perform(post("/api/notifications/{id}/read", ownersDisbursement).header("Authorization", ownerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.readAt").value(readAt));
+        unreadCount(ownerToken, 1);
+        unreadCount(otherToken, 1);
+
+        mockMvc.perform(post("/api/notifications/read-all").header("Authorization", ownerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.markedRead").value(1));
+        mockMvc.perform(post("/api/notifications/read-all").header("Authorization", ownerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.markedRead").value(0));
+        unreadCount(ownerToken, 0);
+        unreadCount(otherToken, 1);
+        assertThat(jdbc.queryForObject("select read_at is null from notifications where id = UUID_TO_BIN(?)", Boolean.class,
+                othersDisbursement.toString())).as("other user's copy untouched").isTrue();
+        mockMvc.perform(post("/api/notifications/{id}/read", ownersDisbursement).header("Authorization", ownerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.readAt").value(readAt));
+    }
+
+    @Test
+    void readEndpointsRequireATokenAndAValidId() throws Exception {
+        mockMvc.perform(post("/api/notifications/read-all")).andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/api/notifications/{id}/read", UUID.randomUUID())).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/notifications/unread-count")).andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/api/notifications/not-a-uuid/read")
+                        .header("Authorization", "Bearer " + TestJwtSupport.seller(UUID.randomUUID())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
+    }
+
+    @Test
     void apiRequiresAValidTokenButHealthIsPublic() throws Exception {
         mockMvc.perform(get("/api/notifications")).andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/notifications").header("Authorization", "Bearer "
@@ -161,6 +252,24 @@ class NotificationFlowIT extends AbstractIntegrationTest {
         mockMvc.perform(get("/actuator/health/readiness"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("UP"));
+    }
+
+    private void unreadCount(String authorization, long expected) throws Exception {
+        mockMvc.perform(get("/api/notifications/unread-count").header("Authorization", authorization))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.unreadCount").value(expected));
+    }
+
+    private UUID notificationId(UUID eventId, UUID recipient) {
+        return UUID.fromString(jdbc.queryForObject(
+                "select BIN_TO_UUID(id) from notifications where event_id = UUID_TO_BIN(?) and recipient_id = UUID_TO_BIN(?)",
+                String.class, eventId.toString(), recipient.toString()));
+    }
+
+    private static List<String> fieldNames(JsonNode node) {
+        List<String> names = new ArrayList<>();
+        node.fieldNames().forEachRemaining(names::add);
+        return names;
     }
 
     private ObjectNode mapper() {
