@@ -1,0 +1,100 @@
+name: Images
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: images-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  image:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: auth-service, context: ., dockerfile: services/auth-service/Dockerfile }
+          - { name: invoice-service, context: ., dockerfile: services/invoice-service/Dockerfile }
+          - { name: financing-service, context: ., dockerfile: services/financing-service/Dockerfile }
+          - { name: notification-service, context: ., dockerfile: services/notification-service/Dockerfile }
+          - { name: audit-service, context: ., dockerfile: services/audit-service/Dockerfile }
+          - { name: gateway, context: ., dockerfile: services/gateway/Dockerfile }
+          - { name: frontend, context: frontend, dockerfile: frontend/Dockerfile }
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      # GHCR repository names must be lower case; repository owners may not be.
+      - name: Image name
+        id: image
+        run: echo "name=ghcr.io/${OWNER,,}/ifp-${{ matrix.name }}" >> "$GITHUB_OUTPUT"
+        env:
+          OWNER: ${{ github.repository_owner }}
+
+      - uses: docker/setup-buildx-action@v4.4.1
+
+      - uses: docker/metadata-action@v6.2.0
+        id: meta
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=sha,format=long
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      # Build once into the local engine so the exact image can be scanned before anything is pushed.
+      - name: Build
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          load: true
+          tags: ifp-scan/${{ matrix.name }}:${{ github.sha }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+      - name: Trivy scan (fails on critical vulnerabilities)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ifp-scan/${{ matrix.name }}:${{ github.sha }}
+          severity: CRITICAL
+          # Unfixed CVEs have no upgrade path, so only fixable critical findings block a push.
+          ignore-unfixed: true
+          exit-code: '1'
+          format: table
+
+      - name: SBOM (SPDX)
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          image: ifp-scan/${{ matrix.name }}:${{ github.sha }}
+          format: spdx-json
+          output-file: sbom-${{ matrix.name }}.spdx.json
+          artifact-name: sbom-${{ matrix.name }}.spdx.json
+          upload-release-assets: false
+
+      - uses: docker/login-action@v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Same inputs and build cache as the scanned build, so this only re-exports the scanned layers.
+      - name: Push
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.name }}

@@ -1,5 +1,7 @@
 # Invoice Financing Platform
 
+[![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/OWNER/REPO/actions/workflows/ci.yml) <!-- Replace OWNER/REPO once the GitHub remote exists. -->
+
 A portfolio-quality **simulation** of invoice financing: sellers submit invoices, financiers make offers, accepted offers are disbursed (simulated), and repayments are recorded until settlement.
 
 > No real banking, payment gateway or money movement is involved. All amounts are in INR and handled as `BigDecimal` / `DECIMAL(19,2)`.
@@ -19,6 +21,48 @@ Java 21 · Spring Boot 3.5 · Spring Cloud Gateway 2025.0 · Spring Authorizatio
 | Node.js (frontend only) | 22 LTS, project-local: `scripts/use-local-node.ps1` downloads it into the git-ignored `.tools/` (see [Frontend](#frontend)) |
 
 Maven does not need to be installed. Use the bundled wrapper (`mvnw` / `mvnw.cmd`).
+
+## Run everything
+
+Docker is the only requirement. One command builds the six services and the frontend and starts them with the infrastructure:
+
+```bash
+cp .env.example .env          # then replace every replace-me-* value
+docker compose --profile app up -d --build --wait
+```
+
+`--wait` returns once every container reports healthy. The first build downloads all Maven and npm dependencies and takes several minutes; later builds reuse the cached dependency layers.
+
+| Component | Address |
+|---|---|
+| Frontend | http://localhost:4200 |
+| Gateway (`/api/**`) | http://localhost:8080 |
+| auth-service (sign-in page, token issuer) | http://localhost:9000 |
+| MailHog UI | http://localhost:8025 |
+
+invoice-, financing-, notification- and audit-service are reachable only inside the Compose network, through the gateway.
+
+How it fits together:
+- A one-shot `jwt-keygen` container writes a development signing key into the `jwt-keys` volume on first start and keeps it afterwards. auth-service mounts the volume read-only.
+- Tokens carry the browser-visible issuer `AUTH_ISSUER_URI` (`http://localhost:9000`). The gateway and the services check that issuer, but fetch the signing keys from `http://auth-service:9000/oauth2/jwks` inside the network. The `*_URI` values in `.env` that point at `localhost` are only used when the services run on the host.
+- The frontend image serves the production build with nginx. Its `config.json` is written at container start from `IFP_PUBLIC_API_URL` and `AUTH_ISSUER_URI`.
+- Every container runs as a non-root user, and the service containers have read-only root filesystems.
+
+Host ports are set with `AUTH_PORT`, `GATEWAY_PORT` and `FRONTEND_PORT`. The browser talks to these URLs directly, so when you change a port, also change `AUTH_ISSUER_URI`, `IFP_PUBLIC_API_URL`, `AUTH_SPA_*` and `GATEWAY_CORS_ALLOWED_ORIGINS` to match.
+
+Stop with `docker compose --profile app down`. `down -v` also deletes the data and the signing key.
+
+Without `--profile app`, `docker compose up -d` starts only the infrastructure, for running the services from the IDE (below).
+
+### CI
+
+`.github/workflows/ci.yml` runs on every push and pull request:
+- `./mvnw verify` with Testcontainers;
+- frontend lint, unit tests and production build;
+- the mocked Playwright suite;
+- the whole stack in Compose. That last job runs `scripts/e2e/E2eSmokeTest.java` and the live Playwright specs against the containers, then tears the stack down.
+
+`.github/workflows/images.yml` builds every image on `main`, fails on critical Trivy findings, uploads an SPDX SBOM per image and pushes to `ghcr.io/<owner>/ifp-<service>`. Dependabot keeps Maven, npm, Docker base images and GitHub Actions current.
 
 ## Local infrastructure
 

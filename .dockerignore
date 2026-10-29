@@ -1,0 +1,13 @@
+# Build context for the Spring Boot service images (services/*/Dockerfile, built from the repository root).
+# Only Maven sources go in: no secrets, local tooling, frontend or build output.
+**
+
+!mvnw
+!.mvn/wrapper/maven-wrapper.properties
+!pom.xml
+!platform-common/pom.xml
+!platform-common/src/main/
+!platform-messaging/pom.xml
+!platform-messaging/src/main/
+!services/*/pom.xml
+!services/*/src/main/

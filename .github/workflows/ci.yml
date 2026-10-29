@@ -1,0 +1,172 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (Maven verify)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-java@v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      # Integration tests start MySQL, RabbitMQ and Redis with Testcontainers on the runner's Docker engine.
+      - name: Build and test
+        run: ./mvnw -B -ntp verify
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: surefire-reports
+          path: |
+            **/target/surefire-reports/
+            **/target/failsafe-reports/
+          retention-days: 7
+
+  frontend:
+    name: Frontend (lint, unit tests, build)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      # Ubuntu 24.04 blocks the unprivileged user namespaces that Chrome's sandbox needs.
+      - name: Allow the Chrome sandbox
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run test:ci
+      - run: npm run build
+
+  e2e-mocked:
+    name: E2E (Playwright, mocked backend)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Allow the Chrome sandbox
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: npm ci
+      # Uses the runner's preinstalled Google Chrome (channel "chrome"); the *.live.spec.ts files skip themselves.
+      - name: Run Playwright against ng serve
+        run: npx playwright test --workers=2 --reporter=list,html
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: playwright-report-mocked
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          retention-days: 14
+
+  e2e-live:
+    name: E2E (full stack in Docker Compose)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    needs: [backend, frontend]
+    env:
+      COMPOSE_PROFILES: app
+      # Throwaway project; the run registers more users than the default per-address registration limit allows.
+      RATE_LIMIT_PUBLIC_REQUESTED_TOKENS: '1'
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-java@v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Allow the Chrome sandbox
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Create .env with random secrets
+        run: |
+          secret() { openssl rand -hex 24; }
+          cp .env.example .env
+          for name in MYSQL_ROOT_PASSWORD AUTH_DB_PASSWORD INVOICE_DB_PASSWORD FINANCING_DB_PASSWORD \
+                      NOTIFICATION_DB_PASSWORD AUDIT_DB_MIGRATOR_PASSWORD AUDIT_DB_PASSWORD RABBITMQ_PASSWORD REDIS_PASSWORD; do
+            value="$(secret)"
+            echo "::add-mask::$value"
+            sed -i "s/^${name}=.*/${name}=${value}/" .env
+          done
+      # The smoke test also calls invoice-service directly to prove it rejects unauthenticated requests.
+      - name: Publish invoice-service for the smoke test
+        run: |
+          cat > "$RUNNER_TEMP/compose.ci.yml" <<'EOF'
+          services:
+            invoice-service:
+              ports:
+                - "127.0.0.1:8081:8081"
+          EOF
+      - name: Start the stack
+        run: docker compose -f docker-compose.yml -f "$RUNNER_TEMP/compose.ci.yml" up -d --build --wait --wait-timeout 600
+      - name: Show container status
+        if: ${{ !cancelled() }}
+        run: docker compose -f docker-compose.yml -f "$RUNNER_TEMP/compose.ci.yml" ps --all
+      - name: API smoke test (registration, sign-in with PKCE, invoices through the gateway)
+        env:
+          E2E_GATEWAY_URL: http://localhost:8080
+          E2E_AUTH_URL: http://localhost:9000
+          E2E_INVOICE_URL: http://localhost:8081
+        run: |
+          E2E_PASSWORD="$(openssl rand -base64 24 | tr '+/' '-_')"
+          echo "::add-mask::$E2E_PASSWORD"
+          export E2E_PASSWORD
+          java scripts/e2e/E2eSmokeTest.java
+      - run: npm ci
+        working-directory: frontend
+      - name: Run live Playwright specs against the containerised frontend
+        working-directory: frontend
+        env:
+          IFP_STACK: '1'
+          UI_BASE_URL: http://localhost:4200
+          IFP_GATEWAY_URL: http://localhost:8080
+        run: npx playwright test live --workers=2 --reporter=list,html
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: playwright-report-live
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          retention-days: 14
+      - name: Service logs
+        if: failure()
+        run: docker compose -f docker-compose.yml -f "$RUNNER_TEMP/compose.ci.yml" logs --no-color --timestamps
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.yml -f "$RUNNER_TEMP/compose.ci.yml" down -v --remove-orphans
