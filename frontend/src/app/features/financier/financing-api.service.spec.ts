@@ -9,6 +9,7 @@ import {
   AGREEMENT_ID,
   INVOICE_ID,
   agreementFixture,
+  disbursedAgreement,
   disbursementFixture,
   installmentFixture,
   offerFixture,
@@ -149,6 +150,36 @@ describe('FinancingApiService', () => {
     const result = api.schedule(AGREEMENT_ID);
     http.expectOne(`${URL}/agreements/${AGREEMENT_ID}/schedule`).flush([installmentFixture(), installmentFixture({ sequenceNo: 2, status: 'OVERDUE' })]);
     expect((await result).map((i) => i.status)).toEqual(['PENDING', 'OVERDUE']);
+  });
+
+  it('reads penalty figures as numbers, and as null when financing-service does not send them', async () => {
+    const schedule = api.schedule(AGREEMENT_ID);
+    const withPenalty = {
+      ...installmentFixture({ status: 'OVERDUE' }),
+      penaltyAccrued: '1226.17',
+      penaltyPaid: '0.00',
+      penaltyRemaining: '1226.17',
+      penaltyAccruedThrough: '2026-10-27',
+    };
+    const withoutPenalty: Record<string, unknown> = { ...installmentFixture() };
+    for (const field of ['penaltyAccrued', 'penaltyPaid', 'penaltyRemaining', 'penaltyAccruedThrough']) {
+      delete withoutPenalty[field];
+    }
+    http.expectOne(`${URL}/agreements/${AGREEMENT_ID}/schedule`).flush([withPenalty, withoutPenalty]);
+    const [first, second] = await schedule;
+    expect([first.penaltyAccrued, first.penaltyPaid, first.penaltyRemaining, first.penaltyAccruedThrough]).toEqual([
+      1226.17, 0, 1226.17, '2026-10-27',
+    ]);
+    expect([second.penaltyAccrued, second.penaltyPaid, second.penaltyRemaining, second.penaltyAccruedThrough]).toEqual([
+      null, null, null, null,
+    ]);
+
+    const agreement = api.agreement(AGREEMENT_ID);
+    http
+      .expectOne(`${URL}/agreements/${AGREEMENT_ID}`)
+      .flush({ ...disbursedAgreement(), penaltyAccrued: 1226.17, penaltyRepaid: 0, penaltyOutstanding: 1226.17 });
+    const parsed = await agreement;
+    expect([parsed.penaltyAccrued, parsed.penaltyRepaid, parsed.penaltyOutstanding]).toEqual([1226.17, 0, 1226.17]);
   });
 
   it('reports no disbursement before the payout instead of failing', async () => {

@@ -90,14 +90,26 @@
                 <dt>Total repayable</dt>
                 <dd>{{ formatAmount(agreement.totalRepayable, agreement.currency) }}</dd>
               </div>
+              @if (showsPenalty()) {
+                <div>
+                  <dt>Penalty accrued</dt>
+                  <dd>{{ formatAmount(agreement.penaltyAccrued ?? 0, agreement.currency) }}</dd>
+                </div>
+              }
               <div>
-                <dt>Repaid</dt>
-                <dd>{{ formatAmount(agreement.principalRepaid + agreement.feeRepaid, agreement.currency) }}</dd>
+                <dt>Repaid{{ showsPenalty() ? ' (incl. penalty)' : '' }}</dt>
+                <dd>{{ formatAmount(repaidTotal(), agreement.currency) }}</dd>
               </div>
               <div>
-                <dt>Outstanding</dt>
+                <dt>Outstanding{{ showsPenalty() ? ' (incl. penalty)' : '' }}</dt>
                 <dd>{{ formatAmount(agreement.outstanding, agreement.currency) }}</dd>
               </div>
+              @if (showsPenalty()) {
+                <div>
+                  <dt>Penalty outstanding</dt>
+                  <dd>{{ formatAmount(agreement.penaltyOutstanding ?? 0, agreement.currency) }}</dd>
+                </div>
+              }
               @if (agreement.overdue) {
                 <div class="danger">
                   <dt>Overdue</dt>
@@ -111,6 +123,14 @@
                 </div>
               }
             </dl>
+
+            @if (showsPenalty()) {
+              <p class="hint penalty-note" role="note">
+                Penalty interest accrues daily on overdue installments, at the rate and cap configured in financing-service.
+                Its defaults (0.05% a day, capped at 10% of each installment) are placeholders awaiting business sign-off,
+                not approved policy. Repayments pay penalty first, then fee, then principal.
+              </p>
+            }
 
             @if (schedule().kind === 'loading') {
               <p class="muted" role="status">Loading the schedule…</p>
@@ -131,6 +151,9 @@
                       <th scope="col">Due date</th>
                       <th scope="col" class="num">Due</th>
                       <th scope="col" class="num">Paid</th>
+                      @if (showsPenalty()) {
+                        <th scope="col" class="num">Penalty</th>
+                      }
                       <th scope="col" class="num">Remaining</th>
                       <th scope="col">Status</th>
                     </tr>
@@ -140,8 +163,31 @@
                       <tr [class.overdue-row]="item.status === 'OVERDUE'">
                         <td data-label="#" class="num">{{ item.sequenceNo }}</td>
                         <td data-label="Due date">{{ formatDate(item.dueDate) }}</td>
-                        <td data-label="Due" class="num">{{ formatAmount(item.totalDue, agreement.currency) }}</td>
-                        <td data-label="Paid" class="num">{{ formatAmount(item.principalPaid + item.feePaid, agreement.currency) }}</td>
+                        <td data-label="Due" class="num">
+                          <span>
+                            {{ formatAmount(item.totalDue, agreement.currency) }}
+                            <span class="sub">
+                              Principal {{ formatAmount(item.principalDue, agreement.currency) }}, fee
+                              {{ formatAmount(item.feeDue, agreement.currency) }}
+                            </span>
+                          </span>
+                        </td>
+                        <td data-label="Paid" class="num">
+                          {{ formatAmount(item.principalPaid + item.feePaid + (item.penaltyPaid ?? 0), agreement.currency) }}
+                        </td>
+                        @if (showsPenalty()) {
+                          <td data-label="Penalty" class="num">
+                            <span>
+                              {{ item.penaltyAccrued === null ? '—' : formatAmount(item.penaltyAccrued, agreement.currency) }}
+                              @if (item.penaltyRemaining !== null && item.penaltyRemaining > 0) {
+                                <span class="sub">{{ formatAmount(item.penaltyRemaining, agreement.currency) }} unpaid</span>
+                              }
+                              @if (item.penaltyAccruedThrough) {
+                                <span class="sub">to {{ formatDate(item.penaltyAccruedThrough) }}</span>
+                              }
+                            </span>
+                          </td>
+                        }
                         <td data-label="Remaining" class="num">{{ formatAmount(item.remaining, agreement.currency) }}</td>
                         <td data-label="Status"><ifp-financier-badge [info]="installmentInfo[item.status]" /></td>
                       </tr>

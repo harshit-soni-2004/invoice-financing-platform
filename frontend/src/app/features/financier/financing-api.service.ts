@@ -371,6 +371,9 @@ function parseAgreement(row: unknown): Agreement | null {
     principalRepaid: required.principalRepaid!,
     feeRepaid: required.feeRepaid!,
     outstanding: required.outstanding!,
+    penaltyAccrued: toAmount(row['penaltyAccrued']),
+    penaltyRepaid: toAmount(row['penaltyRepaid']),
+    penaltyOutstanding: toAmount(row['penaltyOutstanding']),
     overdue: typeof row['overdue'] === 'boolean' ? row['overdue'] : null,
     overdueAmount: toAmount(row['overdueAmount']),
     nextDueDate: optionalText(row['nextDueDate']),
@@ -408,6 +411,10 @@ function parseInstallment(row: unknown): Installment | null {
     principalPaid: amounts.principalPaid!,
     feePaid: amounts.feePaid!,
     remaining: amounts.remaining!,
+    penaltyAccrued: toAmount(row['penaltyAccrued']),
+    penaltyPaid: toAmount(row['penaltyPaid']),
+    penaltyRemaining: toAmount(row['penaltyRemaining']),
+    penaltyAccruedThrough: optionalText(row['penaltyAccruedThrough']),
   };
 }
 

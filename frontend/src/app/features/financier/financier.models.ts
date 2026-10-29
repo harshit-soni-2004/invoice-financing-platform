@@ -170,8 +170,12 @@ export interface Agreement {
   totalRepayable: number | null;
   principalRepaid: number;
   feeRepaid: number;
-  /** Zero until disbursement fixes the total repayable. */
+  /** Zero until disbursement fixes the total repayable. Includes unpaid penalty interest. */
   outstanding: number;
+  /** Penalty interest figures; null when financing-service does not send them. */
+  penaltyAccrued: number | null;
+  penaltyRepaid: number | null;
+  penaltyOutstanding: number | null;
   /** Only in the single-agreement response: the list omits overdue figures. */
   overdue: boolean | null;
   overdueAmount: number | null;
@@ -190,8 +194,15 @@ export interface Installment {
   totalDue: number;
   principalPaid: number;
   feePaid: number;
+  /** Includes unpaid penalty, so it is zero exactly when the installment is paid. */
   remaining: number;
   status: InstallmentStatus;
+  /** Penalty interest on this installment; null when financing-service does not send it. */
+  penaltyAccrued: number | null;
+  penaltyPaid: number | null;
+  penaltyRemaining: number | null;
+  /** The last day penalty has been charged for, if any. */
+  penaltyAccruedThrough: string | null;
 }
 
 export interface Disbursement {

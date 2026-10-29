@@ -61,6 +61,9 @@ export function agreementFixture(overrides: Partial<Agreement> = {}): Agreement 
     principalRepaid: 0,
     feeRepaid: 0,
     outstanding: 0,
+    penaltyAccrued: 0,
+    penaltyRepaid: 0,
+    penaltyOutstanding: 0,
     overdue: false,
     overdueAmount: 0,
     nextDueDate: null,
@@ -97,6 +100,10 @@ export function installmentFixture(overrides: Partial<Installment> = {}): Instal
     feePaid: 0,
     remaining: 245234.24,
     status: 'PENDING',
+    penaltyAccrued: 0,
+    penaltyPaid: 0,
+    penaltyRemaining: 0,
+    penaltyAccruedThrough: null,
     ...overrides,
   };
 }

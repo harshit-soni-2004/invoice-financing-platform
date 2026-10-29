@@ -116,6 +116,18 @@ export class AgreementDetailComponent {
     return state.kind === 'error' ? state.message : null;
   });
 
+  /** Penalty figures appear only when financing-service sends them; a missing figure is never shown as zero. */
+  protected readonly showsPenalty = computed(() => {
+    const penalty = this.agreement()?.penaltyAccrued;
+    return penalty !== null && penalty !== undefined;
+  });
+
+  /** Everything the seller has paid, penalty included, so that total repayable + penalty − repaid = outstanding. */
+  protected readonly repaidTotal = computed(() => {
+    const agreement = this.agreement();
+    return agreement ? agreement.principalRepaid + agreement.feeRepaid + (agreement.penaltyRepaid ?? 0) : 0;
+  });
+
   protected readonly milestones = computed(() => {
     const agreement = this.agreement();
     if (!agreement) {

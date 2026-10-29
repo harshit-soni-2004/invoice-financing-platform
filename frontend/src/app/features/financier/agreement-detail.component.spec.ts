@@ -213,6 +213,71 @@ describe('AgreementDetailComponent', () => {
     expect(el.querySelector('.summary-figures .danger')?.textContent).toContain('₹1,00,000.00');
   });
 
+  it('shows the penalty breakdown, and totals that reconcile with financing-service’s outstanding amount', async () => {
+    // Total repayable 4,90,468.49 + penalty 1,226.17 − repaid 1,46,460.41 (incl. 1,226.17 penalty) = 3,45,234.25.
+    await open(
+      disbursedAgreement({
+        status: 'REPAYMENT_IN_PROGRESS',
+        overdue: true,
+        overdueAmount: 100000,
+        principalRepaid: 140000,
+        feeRepaid: 5234.24,
+        penaltyAccrued: 1226.17,
+        penaltyRepaid: 1226.17,
+        penaltyOutstanding: 0,
+        outstanding: 345234.25,
+      }),
+    );
+    api.schedule.and.resolveTo([
+      installmentFixture({
+        status: 'OVERDUE',
+        principalPaid: 140000,
+        feePaid: 5234.24,
+        remaining: 100000,
+        penaltyAccrued: 1226.17,
+        penaltyPaid: 1226.17,
+        penaltyRemaining: 0,
+        penaltyAccruedThrough: '2026-10-27',
+      }),
+      installmentFixture({ sequenceNo: 2, penaltyAccrued: 2000, penaltyPaid: 0, penaltyRemaining: 2000 }),
+    ]);
+    fixture.componentInstance['refresh']();
+    await settle();
+
+    const figures = el.querySelector('.summary-figures')!.textContent!;
+    expect(figures).toContain('Penalty accrued₹1,226.17');
+    expect(figures).toContain('Repaid (incl. penalty)₹1,46,460.41');
+    expect(figures).toContain('Outstanding (incl. penalty)₹3,45,234.25');
+    expect(figures).toContain('Penalty outstanding₹0.00');
+
+    const headers = Array.from(el.querySelectorAll('thead th')).map((th) => th.textContent?.trim());
+    expect(headers).toContain('Penalty');
+    const rows = el.querySelectorAll('tbody tr');
+    const penaltyCell = (row: Element) => row.querySelector('[data-label="Penalty"]')!.textContent!;
+    expect(rows[0].querySelector('[data-label="Paid"]')?.textContent).toContain('₹1,46,460.41');
+    expect(penaltyCell(rows[0])).toContain('₹1,226.17');
+    expect(penaltyCell(rows[0])).toContain('to 27 Oct 2026');
+    expect(penaltyCell(rows[0])).not.toContain('unpaid');
+    expect(penaltyCell(rows[1])).toContain('₹2,000.00 unpaid');
+
+    const note = el.querySelector('.penalty-note')!.textContent!;
+    expect(note).toContain('placeholders awaiting business sign-off');
+    expect(note).toContain('not approved policy');
+  });
+
+  it('hides penalty figures instead of showing zero when financing-service does not send them', async () => {
+    await open(disbursedAgreement({ penaltyAccrued: null, penaltyRepaid: null, penaltyOutstanding: null }));
+    api.schedule.and.resolveTo([
+      installmentFixture({ penaltyAccrued: null, penaltyPaid: null, penaltyRemaining: null, penaltyAccruedThrough: null }),
+    ]);
+    fixture.componentInstance['refresh']();
+    await settle();
+
+    expect(el.querySelector('.summary-figures')!.textContent).not.toContain('Penalty');
+    expect(Array.from(el.querySelectorAll('thead th')).map((th) => th.textContent?.trim())).not.toContain('Penalty');
+    expect(el.querySelector('.penalty-note')).toBeNull();
+  });
+
   it('reports an agreement that does not exist or belongs to someone else', async () => {
     await open({ kind: 'not-found' });
     expect(el.querySelector('h1')?.textContent).toBe('Agreement not found');

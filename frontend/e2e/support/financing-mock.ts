@@ -47,8 +47,12 @@ export interface StoredInstallment {
   totalDue: number;
   principalPaid: number;
   feePaid: number;
+  /** Includes unpaid penalty, as financing-service's `remaining` does. */
   remaining: number;
   status: string;
+  penaltyAccrued?: number;
+  penaltyPaid?: number;
+  penaltyAccruedThrough?: string | null;
 }
 
 export interface StoredAgreement {
@@ -109,14 +113,37 @@ function isoDate(offsetDays: number): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
+const cents = (value: number) => Math.round(value * 100) / 100;
+
+/** financing-service's InstallmentResponse: penalty fields are always present. */
+function installmentView(i: StoredInstallment) {
+  const penaltyAccrued = i.penaltyAccrued ?? 0;
+  const penaltyPaid = i.penaltyPaid ?? 0;
+  return {
+    ...i,
+    penaltyAccrued,
+    penaltyPaid,
+    penaltyRemaining: cents(penaltyAccrued - penaltyPaid),
+    penaltyAccruedThrough: i.penaltyAccruedThrough ?? null,
+  };
+}
+
 function view(agreement: StoredAgreement, detail: boolean) {
   const { schedule, disbursement: _disbursement, ...rest } = agreement;
+  const penaltyAccrued = cents(schedule.reduce((sum, i) => sum + (i.penaltyAccrued ?? 0), 0));
+  const penaltyRepaid = cents(schedule.reduce((sum, i) => sum + (i.penaltyPaid ?? 0), 0));
+  const penaltyOutstanding = cents(penaltyAccrued - penaltyRepaid);
   const outstanding =
-    agreement.totalRepayable === null ? 0 : Math.round((agreement.totalRepayable - agreement.principalRepaid - agreement.feeRepaid) * 100) / 100;
+    agreement.totalRepayable === null
+      ? 0
+      : cents(agreement.totalRepayable - agreement.principalRepaid - agreement.feeRepaid + penaltyOutstanding);
   const overdueAmount = schedule.filter((i) => i.status === 'OVERDUE').reduce((sum, i) => sum + i.remaining, 0);
   return {
     ...rest,
     outstanding,
+    penaltyAccrued,
+    penaltyRepaid,
+    penaltyOutstanding,
     principalOutstanding: agreement.totalRepayable === null ? 0 : agreement.advanceAmount - agreement.principalRepaid,
     feeOutstanding: agreement.feeAmount === null ? 0 : agreement.feeAmount - agreement.feeRepaid,
     overdue: detail ? overdueAmount > 0 : null,
@@ -244,7 +271,7 @@ export async function mockFinancing(
         return [200, view(agreement, true)];
       }
       if (method === 'GET' && action === 'schedule') {
-        return [200, agreement.schedule];
+        return [200, agreement.schedule.map(installmentView)];
       }
       if (method === 'GET' && action === 'disbursement') {
         return agreement.disbursement ? [200, agreement.disbursement] : [404, problem(404, 'DISBURSEMENT_NOT_FOUND')];

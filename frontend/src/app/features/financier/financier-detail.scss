@@ -191,6 +191,16 @@ h2 {
   background: var(--color-danger-soft);
 }
 
+.sub {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.penalty-note {
+  margin: 0;
+}
+
 @media (max-width: 30rem) {
   .form-actions {
     flex-direction: column;

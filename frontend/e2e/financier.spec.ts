@@ -208,6 +208,43 @@ test.describe('financier workflow (mocked auth-service and gateway)', () => {
     await expect(page.getByRole('button', { name: 'Disburse advance' })).toBeDisabled();
   });
 
+  test('the repayment schedule shows the penalty breakdown, labelled as placeholder policy', async ({ page }) => {
+    await mockAuth(page, financier);
+    await mockFinancing(page, {
+      agreements: [
+        storedAgreement({
+          status: 'REPAYMENT_IN_PROGRESS',
+          feeAmount: 10468.49,
+          totalRepayable: 490468.49,
+          principalRepaid: 240000,
+          feeRepaid: 5234.24,
+          approvedAt: '2026-09-01T10:00:00Z',
+          disbursedAt: '2026-09-01T11:00:00Z',
+          schedule: [
+            { sequenceNo: 1, dueDate: '2026-09-20', principalDue: 240000, feeDue: 5234.24, totalDue: 245234.24, principalPaid: 240000, feePaid: 5234.24, remaining: 0, status: 'PAID', penaltyAccrued: 245.23, penaltyPaid: 245.23, penaltyAccruedThrough: '2026-09-22' },
+            { sequenceNo: 2, dueDate: '2026-10-20', principalDue: 240000, feeDue: 5234.25, totalDue: 245234.25, principalPaid: 0, feePaid: 0, remaining: 246460.42, status: 'OVERDUE', penaltyAccrued: 1226.17, penaltyPaid: 0, penaltyAccruedThrough: '2026-10-29' },
+          ],
+          disbursement: { id: 'd1', agreementId: 'e0000000-0000-4000-8000-000000000001', amount: 480000, currency: 'INR', status: 'SIMULATED', reference: 'SIM-000043', disbursedAt: '2026-09-01T11:00:00Z' },
+        }),
+      ],
+    });
+    await page.goto(AGREEMENT);
+
+    const figures = page.locator('.summary-figures');
+    await expect(figures).toContainText('Penalty accrued₹1,471.40');
+    // 2,40,000 + 5,234.24 + 245.23 penalty paid.
+    await expect(figures).toContainText('Repaid (incl. penalty)₹2,45,479.47');
+    // 4,90,468.49 + 1,471.40 − 2,45,479.47.
+    await expect(figures).toContainText('Outstanding (incl. penalty)₹2,46,460.42');
+    await expect(figures).toContainText('Penalty outstanding₹1,226.17');
+    await expect(page.getByRole('columnheader', { name: 'Penalty' })).toBeVisible();
+    const overdueRow = page.locator('tbody tr').nth(1);
+    await expect(overdueRow.locator('[data-label="Penalty"]')).toContainText('₹1,226.17 unpaid');
+    await expect(overdueRow.locator('[data-label="Remaining"]')).toContainText('₹2,46,460.42');
+    await expect(page.getByRole('note')).toContainText('placeholders awaiting business sign-off');
+    await expectNoHorizontalOverflow(page);
+  });
+
   test('the repayment schedule marks paid and overdue installments', async ({ page }) => {
     await mockAuth(page, financier);
     await mockFinancing(page, {
