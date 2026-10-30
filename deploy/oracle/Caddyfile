@@ -1,0 +1,15 @@
+# One HTTPS host per browser-visible component. Caddy obtains and renews the certificates, redirects http to https,
+# and sends X-Forwarded-For/-Proto, which the gateway (one trusted hop) and auth-service (Tomcat) rely on.
+
+{$APP_HOST} {
+	encode zstd gzip
+	reverse_proxy frontend:8080
+}
+
+{$API_HOST} {
+	reverse_proxy gateway:8080
+}
+
+{$AUTH_HOST} {
+	reverse_proxy auth-service:9000
+}

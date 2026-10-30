@@ -216,7 +216,16 @@ Without `--profile app`, `docker compose up -d` starts only the infrastructure, 
 
 `.github/workflows/images.yml` builds every image on `main`, fails on fixable critical Trivy findings, uploads an SPDX SBOM per image and pushes to `ghcr.io/<owner>/ifp/<service>`, tagged `latest` and `sha-<commit>`. The only accepted findings are listed in `.trivyignore`, each with a reason and an expiry date. Dependabot keeps Maven, npm, Docker base images and GitHub Actions current.
 
-To run the published images instead of building, set `IFP_IMAGE_REGISTRY=ghcr.io/<owner>/ifp` and `IFP_IMAGE_TAG=latest` (or a `sha-<commit>` tag) in `.env`, then `docker compose --profile app pull` and `docker compose --profile app up -d --no-build --wait`. New GHCR packages are private; make them public in the package settings, or `docker login ghcr.io` first.
+To run the published images instead of building, set `IFP_IMAGE_REGISTRY=ghcr.io/<owner>/ifp` and `IFP_IMAGE_TAG=latest` (or a `sha-<commit>` tag) in `.env`, then `docker compose --profile app pull` and `docker compose --profile app up -d --no-build --wait`. The `harshit-soni-2004` packages are public. In a fork, new GHCR packages start private: make them public in the package settings, or run `docker login ghcr.io` first.
+
+The images are multi-arch (`linux/amd64` and `linux/arm64`); both architectures are scanned before the push.
+
+### Free public deployment
+
+There are two zero-cost ways to put the published images online. Both generate their own random secrets and a new admin password, expose only the app, the API gateway and the sign-in server, and keep MySQL, RabbitMQ, Redis and MailHog private:
+
+- **Demo from this PC** (Windows, Docker Desktop): run `powershell -ExecutionPolicy Bypass -File deploy/tunnel/start-demo.ps1`. It starts the stack as Compose project `ifp-demo` on ports 34200, 38080 and 39000, opens three Cloudflare quick tunnels (no account needed), and prints three `https://*.trycloudflare.com` URLs. The URLs change on every start, and the demo is online only while the PC is on. The admin password is `ADMIN_BOOTSTRAP_PASSWORD` in `.env.demo`. `deploy/tunnel/stop-demo.ps1` stops it; add `-RemoveData` to delete the data and `.env.demo` too.
+- **Always-on server**: an Oracle Cloud Always Free Arm VM with HTTPS from Let's Encrypt. See [deploy/oracle/README.md](deploy/oracle/README.md).
 
 ## Local infrastructure
 

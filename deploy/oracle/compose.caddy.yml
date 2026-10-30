@@ -1,0 +1,40 @@
+# Third layer for a server with a public IP (deploy/oracle/setup.sh): Caddy terminates HTTPS with Let's Encrypt
+# certificates and is the only container with public ports. Use together with docker-compose.yml and
+# deploy/compose.public.yml.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    profiles: [app]
+    restart: unless-stopped
+    environment:
+      APP_HOST: ${APP_HOST:?set APP_HOST}
+      API_HOST: ${API_HOST:?set API_HOST}
+      AUTH_HOST: ${AUTH_HOST:?set AUTH_HOST}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/oracle/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      frontend:
+        condition: service_healthy
+
+  # Reached through Caddy only.
+  auth-service:
+    ports: !reset []
+  gateway:
+    ports: !reset []
+  frontend:
+    ports: !reset []
+
+  # MailHog publishes amd64 images only; Arm hosts run it under QEMU (setup.sh installs the emulator).
+  mailhog:
+    platform: linux/amd64
+
+volumes:
+  caddy-data:
+  caddy-config:
