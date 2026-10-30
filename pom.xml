@@ -33,6 +33,10 @@
         <java.version>21</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <spring-cloud.version>2025.0.3</spring-cloud.version>
+        <!-- Security patches ahead of Spring Boot 3.5.16's managed versions; drop each once the parent catches up. -->
+        <tomcat.version>10.1.61</tomcat.version>
+        <netty.version>4.1.139.Final</netty.version>
+        <bouncycastle.version>1.86</bouncycastle.version>
         <!-- Defined so that @{argLine} resolves even when no other plugin contributes JVM arguments. -->
         <argLine/>
         <mockito.agent.argLine>-javaagent:${org.mockito:mockito-core:jar}</mockito.agent.argLine>
@@ -46,6 +50,12 @@
                 <version>${spring-cloud.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+            <!-- Pulled in by spring-cloud-starter (gateway); the BOM's version has a critical CVE. -->
+            <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcprov-jdk18on</artifactId>
+                <version>${bouncycastle.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.ifp</groupId>

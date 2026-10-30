@@ -34,10 +34,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
 
-      # GHCR repository names must be lower case; repository owners may not be.
+      # GHCR repository names must be lower case; repository owners may not be. The layout matches docker-compose.yml's
+      # ${IFP_IMAGE_REGISTRY}/<service> with IFP_IMAGE_REGISTRY=ghcr.io/<owner>/ifp.
       - name: Image name
         id: image
-        run: echo "name=ghcr.io/${OWNER,,}/ifp-${{ matrix.name }}" >> "$GITHUB_OUTPUT"
+        run: echo "name=ghcr.io/${OWNER,,}/ifp/${{ matrix.name }}" >> "$GITHUB_OUTPUT"
         env:
           OWNER: ${{ github.repository_owner }}
 
@@ -70,6 +71,8 @@ jobs:
           severity: CRITICAL
           # Unfixed CVEs have no upgrade path, so only fixable critical findings block a push.
           ignore-unfixed: true
+          # Accepted findings, each with a reason and an expiry date.
+          trivyignores: .trivyignore
           exit-code: '1'
           format: table
 

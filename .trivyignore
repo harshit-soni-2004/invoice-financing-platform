@@ -1,0 +1,9 @@
+# Critical findings accepted for the image scan (.github/workflows/images.yml). Keep this list short: every entry
+# needs a reason and an expiry, after which Trivy reports the finding again and the build fails until it is reviewed.
+#
+# Spring Framework 6.2.19 is the newest 6.2.x release (Spring Boot 3.5.16). Trivy lists these as fixed only in
+# Spring Framework 7.0.9, which requires the Spring Boot 4 migration (Dependabot PR #7, not yet compatible).
+# Remove these entries when moving to Spring Boot 4 or when a fixed 6.2.x release ships.
+CVE-2026-47884 exp:2027-01-31
+CVE-2026-47890 exp:2027-01-31
+CVE-2026-47892 exp:2027-01-31

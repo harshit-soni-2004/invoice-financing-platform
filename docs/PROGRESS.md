@@ -13,25 +13,26 @@ A portfolio-quality simulation of invoice financing: sellers submit invoices, ad
 | Financier workflow | `c0ca040` | Merge of `feat/financier-ui` |
 | Full-stack run of `main` | `c0ca040` | Smoke test 25/25, business flow 41/41, log scan clean. Run before the seller offers merge |
 | Seller offers, agreement, repayments, draft edit and cancel | `ea2a657` | Merge of `feat/seller-offers-repayments` (its merge of `main` is `24eb812`) |
-| Configurable live auth URL (`IFP_AUTH_URL`) for the live Playwright specs | `9b85a6f` | Live specs not yet run with it |
+| Configurable live auth URL (`IFP_AUTH_URL`) for the live Playwright specs | `9b85a6f` | |
+| Backend gaps: financier rejection, notification read state, delayed retries, `processed_at` index | `4246313` | Branch `feat/backend-gaps` |
+| Frontend follow-up: admin reject, server unread count and mark as read, financier penalty breakdown | `c6b867c` | Branch `feat/frontend-follow-up` |
+| Deployable images: critical CVEs patched, images published to `ghcr.io/<owner>/ifp/<service>` | after `c6b867c` | Local Trivy gate clean for all 7 images; full stack smoke 25/25, business flow 41/41, live Playwright 9 passed (5 mobile skips by design), log scan clean |
 
 ## Queue
 
-1. **Backend gaps** (Agent 2, branch `feat/backend-gaps`): financier rejection, notification read state, delayed retries and the `processed_at` index in invoice, notification and audit services.
-2. **Frontend follow-up** (branch `feat/frontend-follow-up`, awaiting review): admin reject button for financiers, real unread notification count and mark-as-read, penalty breakdown in the financier repayment schedule.
-3. **Live Playwright against the container stack**, with `IFP_AUTH_URL` set.
-4. Observability.
-5. Ledger.
-6. Risk scoring.
-7. AI extraction.
-8. Load tests.
-9. Deployment.
-10. Failure drill and blog post.
+1. Spring Boot 4 migration (removes the Spring Framework entries in `.trivyignore`).
+2. Observability.
+3. Ledger.
+4. Risk scoring.
+5. AI extraction.
+6. Load tests.
+7. Hosted deployment (a cloud target that runs the published images).
+8. Failure drill and blog post.
 
 ## Known issues
 
-- The CI badge in the README still uses the `OWNER/REPO` placeholder.
-- The live Playwright specs have not passed against the containers yet.
+- Three critical Spring Framework 6.2.19 CVEs (CVE-2026-47884, -47890, -47892) are accepted in `.trivyignore` until 31 January 2027: Trivy lists a fix only in Spring Framework 7, which needs Spring Boot 4.
+- New GHCR packages are private until made public in the package settings.
 - On a loaded host, the first `docker compose --wait` can report RabbitMQ unhealthy; a second `--wait` passes.
 - The penalty rate (0.05% per day) and the 10% cap are placeholders that need business sign-off.
 - Trivy runs with `ignore-unfixed`.

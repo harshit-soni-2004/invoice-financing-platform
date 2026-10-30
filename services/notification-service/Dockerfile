@@ -26,7 +26,8 @@ RUN ./mvnw -B -q -pl services/notification-service -am package -DskipTests \
     && java -Djarmode=tools -jar app.jar extract --layers --launcher --destination extracted
 
 FROM eclipse-temurin:21-jre-alpine
-RUN addgroup -S -g 10001 app && adduser -S -u 10001 -G app -h /app app
+# Pick up Alpine security fixes released after the base image was built.
+RUN apk upgrade --no-cache && addgroup -S -g 10001 app && adduser -S -u 10001 -G app -h /app app
 WORKDIR /app
 COPY --from=build --chown=app:app /workspace/extracted/dependencies/ ./
 COPY --from=build --chown=app:app /workspace/extracted/spring-boot-loader/ ./

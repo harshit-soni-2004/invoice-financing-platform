@@ -214,7 +214,9 @@ Without `--profile app`, `docker compose up -d` starts only the infrastructure, 
 - the mocked Playwright suite;
 - the whole stack in Compose. That last job runs `scripts/e2e/E2eSmokeTest.java` and the live Playwright specs against the containers, then tears the stack down.
 
-`.github/workflows/images.yml` builds every image on `main`, fails on critical Trivy findings, uploads an SPDX SBOM per image and pushes to `ghcr.io/<owner>/ifp-<service>`. Dependabot keeps Maven, npm, Docker base images and GitHub Actions current.
+`.github/workflows/images.yml` builds every image on `main`, fails on fixable critical Trivy findings, uploads an SPDX SBOM per image and pushes to `ghcr.io/<owner>/ifp/<service>`, tagged `latest` and `sha-<commit>`. The only accepted findings are listed in `.trivyignore`, each with a reason and an expiry date. Dependabot keeps Maven, npm, Docker base images and GitHub Actions current.
+
+To run the published images instead of building, set `IFP_IMAGE_REGISTRY=ghcr.io/<owner>/ifp` and `IFP_IMAGE_TAG=latest` (or a `sha-<commit>` tag) in `.env`, then `docker compose --profile app pull` and `docker compose --profile app up -d --no-build --wait`. New GHCR packages are private; make them public in the package settings, or `docker login ghcr.io` first.
 
 ## Local infrastructure
 
