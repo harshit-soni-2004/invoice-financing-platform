@@ -17,6 +17,7 @@ A portfolio-quality simulation of invoice financing: sellers submit invoices, ad
 | Backend gaps: financier rejection, notification read state, delayed retries, `processed_at` index | `4246313` | Branch `feat/backend-gaps` |
 | Frontend follow-up: admin reject, server unread count and mark as read, financier penalty breakdown | `c6b867c` | Branch `feat/frontend-follow-up` |
 | Deployable images: critical CVEs patched, images published to `ghcr.io/<owner>/ifp/<service>` | after `c6b867c` | Local Trivy gate clean for all 7 images; full stack smoke 25/25, business flow 41/41, live Playwright 9 passed (5 mobile skips by design), log scan clean |
+| Free deployment: Cloudflare quick-tunnel demo, Oracle Always Free scripts, multi-arch images | branch `feat/free-deployment` | Tunnel demo ran from the published images; live Playwright 7/7 through the public `trycloudflare.com` URLs. Local arm64 builds of gateway and frontend. Oracle script checked with ShellCheck, `caddy validate` and `docker compose config`, but not yet run on a VM |
 
 ## Queue
 
@@ -26,13 +27,13 @@ A portfolio-quality simulation of invoice financing: sellers submit invoices, ad
 4. Risk scoring.
 5. AI extraction.
 6. Load tests.
-7. Hosted deployment (a cloud target that runs the published images).
-8. Failure drill and blog post.
+7. Failure drill and blog post.
 
 ## Known issues
 
 - Three critical Spring Framework 6.2.19 CVEs (CVE-2026-47884, -47890, -47892) are accepted in `.trivyignore` until 31 January 2027: Trivy lists a fix only in Spring Framework 7, which needs Spring Boot 4.
-- New GHCR packages are private until made public in the package settings.
+- On Arm hosts, MailHog runs under amd64 emulation because it has no Arm image.
+- Cloudflare quick-tunnel URLs change on every start and have no uptime guarantee.
 - On a loaded host, the first `docker compose --wait` can report RabbitMQ unhealthy; a second `--wait` passes.
 - The penalty rate (0.05% per day) and the 10% cap are placeholders that need business sign-off.
 - Trivy runs with `ignore-unfixed`.

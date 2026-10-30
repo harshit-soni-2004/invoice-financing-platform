@@ -42,6 +42,12 @@ jobs:
         env:
           OWNER: ${{ github.repository_owner }}
 
+      # arm64 images run on Arm hosts such as Oracle Cloud's Always Free Ampere VMs. Only the runtime stage is emulated;
+      # the Dockerfiles compile on the runner's own platform.
+      - uses: docker/setup-qemu-action@v4.4.0
+        with:
+          platforms: arm64
+
       - uses: docker/setup-buildx-action@v4.4.1
 
       - uses: docker/metadata-action@v6.2.0
@@ -76,6 +82,28 @@ jobs:
           exit-code: '1'
           format: table
 
+      - name: Build (arm64)
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/arm64
+          load: true
+          tags: ifp-scan/${{ matrix.name }}:${{ github.sha }}-arm64
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.name }}-arm64
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}-arm64
+
+      - name: Trivy scan arm64 (fails on critical vulnerabilities)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ifp-scan/${{ matrix.name }}:${{ github.sha }}-arm64
+          severity: CRITICAL
+          ignore-unfixed: true
+          trivyignores: .trivyignore
+          exit-code: '1'
+          format: table
+
       - name: SBOM (SPDX)
         uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
@@ -91,13 +119,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Same inputs and build cache as the scanned build, so this only re-exports the scanned layers.
+      # Same inputs and build caches as the scanned builds, so this only re-exports the scanned layers.
       - name: Push
         uses: docker/build-push-action@v7.4.0
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-from: |
+            type=gha,scope=${{ matrix.name }}
+            type=gha,scope=${{ matrix.name }}-arm64

@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 # Build from the repository root: docker build -f services/auth-service/Dockerfile .
 
-FROM eclipse-temurin:21-jdk-alpine AS build
+# Bytecode is platform-independent: compile natively, then assemble the runtime image for each target platform.
+FROM --platform=$BUILDPLATFORM eclipse-temurin:21-jdk-alpine AS build
 WORKDIR /workspace
 ENV MAVEN_OPTS="-Dmaven.repo.local=/workspace/.m2"
 

@@ -1,0 +1,29 @@
+# Overrides docker-compose.yml for a public demo behind an HTTPS proxy (Cloudflare Tunnel or Caddy).
+# Usage: docker compose -f docker-compose.yml -f deploy/compose.public.yml --env-file <env> --profile app ...
+# Container names are dropped so the demo can run next to the development stack, and the databases, broker and Redis
+# get no host ports at all: only the frontend, gateway and auth-service are reachable, and only through the proxy.
+
+services:
+  mysql:
+    container_name: !reset null
+    ports: !reset []
+
+  rabbitmq:
+    container_name: !reset null
+    ports: !reset []
+
+  redis:
+    container_name: !reset null
+    ports: !reset []
+
+  # Demo emails stay in MailHog; its web UI is published on the host's loopback only.
+  mailhog:
+    container_name: !reset null
+    ports: !override
+      - "127.0.0.1:${MAILHOG_UI_PORT:-8025}:8025"
+
+  # The proxy terminates TLS. Tomcat trusts X-Forwarded-For/-Proto from private addresses only (its default), so
+  # sign-in redirects use the public https URL and login throttling sees the real client address.
+  auth-service:
+    environment:
+      SERVER_FORWARD_HEADERS_STRATEGY: native
