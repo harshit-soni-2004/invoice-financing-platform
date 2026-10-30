@@ -9,6 +9,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
  */
 const GATEWAY = process.env['IFP_GATEWAY_URL'] ?? 'http://localhost:8080';
 const AUTH = process.env['IFP_AUTH_URL'] ?? 'http://localhost:9000';
+const APP = new URL(process.env['UI_BASE_URL'] ?? 'http://127.0.0.1:4200').origin;
 
 test.skip(process.env['IFP_STACK'] !== '1', 'needs the running stack (IFP_STACK=1)');
 test.describe.configure({ mode: 'serial' });
@@ -48,20 +49,20 @@ test('a seller signs in through auth-service, loads their profile through the ga
   await page.goto('/account');
   await signInOnAuthService(page, email);
 
-  await expect(page).toHaveURL(/:4200\/account$/);
+  await expect(page).toHaveURL(`${APP}/account`);
   await expect(page.getByText(email)).toBeVisible();
   const stored = await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }));
   expect(stored).not.toMatch(/eyJ[\w-]+\.[\w-]+/);
 
   await page.goto('/seller');
-  await expect(page).toHaveURL(/:4200\/seller$/);
+  await expect(page).toHaveURL(`${APP}/seller`);
   await expect(page.getByRole('heading', { level: 1, name: 'Your invoices' })).toBeVisible();
 
   if (isMobile) {
     await page.getByRole('button', { name: 'Menu' }).click();
   }
   await page.getByRole('button', { name: 'Sign out' }).click();
-  await expect(page).toHaveURL(/:4200\/$/);
+  await expect(page).toHaveURL(`${APP}/`);
 
   // The auth-service session ended too, so the password is required again.
   await page.goto('/account');
