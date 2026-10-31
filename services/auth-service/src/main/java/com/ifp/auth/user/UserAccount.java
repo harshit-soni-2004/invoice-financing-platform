@@ -109,6 +109,23 @@ public class UserAccount {
         return true;
     }
 
+    /** @return false if the name is unchanged (nothing to save). */
+    public boolean rename(String newDisplayName, Instant now) {
+        String stripped = Objects.requireNonNull(newDisplayName).strip();
+        if (stripped.equals(displayName)) {
+            return false;
+        }
+        displayName = stripped;
+        updatedAt = now;
+        return true;
+    }
+
+    /** The caller has verified the current password and checked the new one against {@link PasswordPolicy}. */
+    public void changePasswordHash(String newPasswordHash, Instant now) {
+        passwordHash = Objects.requireNonNull(newPasswordHash);
+        updatedAt = now;
+    }
+
     public boolean canSignIn() {
         return status == UserStatus.ACTIVE;
     }

@@ -211,6 +211,11 @@ export class AuthService {
     return session.accessToken;
   }
 
+  /** Shows a name the user just saved; the ID token keeps the old one until the next sign-in. */
+  renameUser(name: string): void {
+    this.session.update((session) => (session ? { ...session, user: { ...session.user, name } } : session));
+  }
+
   /** The gateway rejected the token (for example after a role change or key rotation): sign in again. */
   sessionRejected(): void {
     if (!this.session()) {

@@ -51,7 +51,9 @@ public class NotificationService {
     @Transactional
     public void handle(EventEnvelope event) {
         Instant now = clock.instant();
-        if ("UserRegistered".equals(event.eventType())) {
+        // A profile update carries the same contact fields as the registration; neither sends mail on its own besides
+        // the registration welcome.
+        if ("UserRegistered".equals(event.eventType()) || "UserProfileUpdated".equals(event.eventType())) {
             JsonNode p = event.payload();
             recipients.upsert(UUID.fromString(p.path("userId").asText()), p.path("email").asText(),
                     p.path("displayName").asText(), p.path("role").asText(), now);

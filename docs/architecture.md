@@ -190,6 +190,8 @@ Repayments also lock the installment rows. Under MySQL's REPEATABLE READ, a plai
 |---|---|---|
 | `POST /api/auth/register` | public | Register a SELLER or FINANCIER (FINANCIER accounts start `PENDING_APPROVAL`; ADMIN cannot be self-registered) |
 | `GET /api/users/me` | any | Current profile |
+| `PUT /api/users/me` | any (own) | Change the display name; email, role and status cannot be changed here |
+| `POST /api/users/me/password` | any (own) | Change the password; needs the current one, which locks out after 5 wrong attempts (429 with `Retry-After`) |
 | `GET /api/admin/users` · `POST /api/admin/users/{id}/activate` | ADMIN | User management |
 | `POST /api/invoices` · `PUT /api/invoices/{id}` | SELLER | Create, or edit a DRAFT |
 | `GET /api/invoices?status=&page=&size=` · `GET /api/invoices/{id}` | SELLER (own) / ADMIN | List & detail |
@@ -244,6 +246,8 @@ Topic exchange `ifp.events`, routing key `<aggregate>.<event>` (for example `inv
 | Routing key → event type | Producer | Payload |
 |---|---|---|
 | `user.registered` → `UserRegistered` | auth | `userId`, `email`, `displayName`, `role` |
+| `user.profile-updated` → `UserProfileUpdated` | auth | `userId`, `email`, `displayName`, `role` (only when the name actually changed) |
+| `user.password-changed` → `UserPasswordChanged` | auth | `userId` only |
 | `invoice.<created\|submitted\|buyer_confirmed\|verified\|listed_for_financing\|financed\|settled\|rejected\|cancelled>` → `Invoice<Created\|Submitted\|…>` | invoice | Invoice snapshot (IDs, number, buyer name, amount, dates, status, `previousStatus`, row `sourceVersion`); no description, rejection reason or GSTIN |
 | `financing.offer_<created\|accepted\|rejected\|withdrawn\|expired\|closed>` → `FinancingOffer<…>` | financing | Offer snapshot |
 | `financing.<agreement_created\|approved\|rejected\|cancelled\|disbursed\|settled>` → `FinancingAgreementCreated`, `FinancingApproved`, … | financing | Agreement snapshot; `penaltyAccrued`, `penaltyRepaid` appended |
@@ -261,10 +265,10 @@ A null `actorId` means the system made the change (offer expiry, competing offer
 |---|---|---|
 | `financing.invoice-events` | `invoice.*` | financing-service feeds the `financeable_invoices` projection (version-checked) |
 | `invoice.financing-events` | `financing.disbursed`, `financing.settled` | invoice-service moves the invoice to `FINANCED` / `SETTLED` as actor `SYSTEM` |
-| `notification.events` | `user.registered`, `invoice.*`, `financing.*` | notification-service sends email through MailHog |
+| `notification.events` | `user.registered`, `user.profile-updated`, `invoice.*`, `financing.*` | notification-service sends email through MailHog; a rename only updates the recipient directory |
 | `audit.events` | `#` | audit-service records every event |
 
-Events carry IDs, amounts, dates and statuses, and never passwords or tokens. `UserRegistered` is the only event with an email address and display name: notification-service needs them for its recipient directory, and audit-service strips both before storing. Notification emails never contain amounts.
+Events carry IDs, amounts, dates and statuses, and never passwords or tokens. `UserRegistered` and `UserProfileUpdated` are the only events with an email address and display name: notification-service needs them for its recipient directory, and audit-service strips both before storing. Notification emails never contain amounts.
 
 Reliability:
 
