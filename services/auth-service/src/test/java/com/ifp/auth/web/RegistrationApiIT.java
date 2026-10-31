@@ -163,6 +163,18 @@ class RegistrationApiIT extends AbstractIntegrationTest {
                 .andExpect(status().isForbidden());
     }
 
+    @Test
+    void loginPageLinksToTheAppAndLoadsItsAssetsWithoutASession() throws Exception {
+        mockMvc.perform(get("/login"))
+                .andExpect(content().string(containsString("href=\"http://localhost:4200/register\"")))
+                .andExpect(content().string(containsString("name=\"username\"")))
+                .andExpect(content().string(containsString("name=\"password\"")));
+        mockMvc.perform(get("/login").param("error", ""))
+                .andExpect(content().string(containsString("role=\"alert\"")));
+        mockMvc.perform(get("/assets/login.css")).andExpect(status().isOk());
+        mockMvc.perform(get("/assets/login.js")).andExpect(status().isOk());
+    }
+
     private ResultActions register(String email, String password, String role) throws Exception {
         String body = """
                 {"email":"%s","password":"%s","displayName":"Test User","role":"%s"}""".formatted(email, password, role);

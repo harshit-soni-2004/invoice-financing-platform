@@ -51,8 +51,9 @@ public class SecurityConfig {
                 .addFilterAfter(rateLimitFilter, CorsFilter.class)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info", "/error").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/assets/**").permitAll()
                         .anyRequest().authenticated())
-                .formLogin(Customizer.withDefaults())
+                .formLogin(form -> form.loginPage("/login").permitAll())
                 .build();
     }
 
