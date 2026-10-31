@@ -1,24 +1,30 @@
 package com.ifp.auth.web;
 
+import com.ifp.auth.user.AccountService;
 import com.ifp.auth.user.Role;
 import com.ifp.auth.user.UserAdminService;
 import com.ifp.auth.user.UserStatus;
+import com.ifp.auth.web.dto.ChangePasswordRequest;
 import com.ifp.auth.web.dto.PageResponse;
 import com.ifp.auth.web.dto.RejectUserRequest;
+import com.ifp.auth.web.dto.UpdateProfileRequest;
 import com.ifp.auth.web.dto.UserResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
@@ -28,15 +34,30 @@ import java.util.UUID;
 public class UserController {
 
     private final UserAdminService userAdminService;
+    private final AccountService accountService;
 
-    public UserController(UserAdminService userAdminService) {
+    public UserController(UserAdminService userAdminService, AccountService accountService) {
         this.userAdminService = userAdminService;
+        this.accountService = accountService;
     }
 
     @GetMapping("/api/users/me")
     @PreAuthorize("isAuthenticated()")
     public UserResponse me(@AuthenticationPrincipal Jwt jwt) {
         return UserResponse.from(userAdminService.get(UUID.fromString(jwt.getSubject())));
+    }
+
+    @PutMapping("/api/users/me")
+    @PreAuthorize("isAuthenticated()")
+    public UserResponse updateMe(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody UpdateProfileRequest request) {
+        return UserResponse.from(accountService.updateProfile(UUID.fromString(jwt.getSubject()), request.displayName()));
+    }
+
+    @PostMapping("/api/users/me/password")
+    @PreAuthorize("isAuthenticated()")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void changeMyPassword(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody ChangePasswordRequest request) {
+        accountService.changePassword(UUID.fromString(jwt.getSubject()), request.currentPassword(), request.newPassword());
     }
 
     @GetMapping("/api/admin/users")

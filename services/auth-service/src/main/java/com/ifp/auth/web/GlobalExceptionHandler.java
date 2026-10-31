@@ -1,6 +1,8 @@
 package com.ifp.auth.web;
 
+import com.ifp.auth.user.AccountFieldException;
 import com.ifp.auth.user.DuplicateEmailException;
+import com.ifp.auth.user.TooManyAttemptsException;
 import com.ifp.auth.user.UserNotFoundException;
 import com.ifp.auth.user.UserNotPendingApprovalException;
 import org.slf4j.Logger;
@@ -54,6 +56,23 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(DuplicateEmailException.class)
     ProblemDetail duplicateEmail(DuplicateEmailException ex) {
         return problem(HttpStatus.CONFLICT, "Email already registered", "DUPLICATE_EMAIL", ex.getMessage());
+    }
+
+    /** Same shape as a validation failure, so the client shows the message next to the field. */
+    @ExceptionHandler(AccountFieldException.class)
+    ProblemDetail accountField(AccountFieldException ex) {
+        ProblemDetail problem = problem(HttpStatus.BAD_REQUEST, "Validation failed", "VALIDATION_FAILED",
+                "One or more fields are invalid");
+        problem.setProperty("errors", List.of(Map.of("field", ex.field(), "message", ex.getMessage())));
+        return problem;
+    }
+
+    @ExceptionHandler(TooManyAttemptsException.class)
+    ResponseEntity<ProblemDetail> tooManyAttempts(TooManyAttemptsException ex) {
+        long seconds = Math.max(1, (ex.retryAfter().toMillis() + 999) / 1000);
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(seconds))
+                .body(problem(HttpStatus.TOO_MANY_REQUESTS, "Too many attempts", "TOO_MANY_ATTEMPTS", ex.getMessage()));
     }
 
     @ExceptionHandler(UserNotFoundException.class)

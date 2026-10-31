@@ -86,6 +86,28 @@ class NotificationFlowIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void renamedUserIsGreetedByTheNewNameAndTheRenameItselfSendsNoMail() throws Exception {
+        UUID seller = UUID.randomUUID();
+        String email = "renamed-" + seller.toString().substring(0, 8) + "@example.test";
+        send("user.registered", "UserRegistered", "USER", seller.toString(), mapper()
+                .put("userId", seller.toString()).put("email", email).put("displayName", "Old Name").put("role", "SELLER"));
+        await(() -> mailTo(email).path("total").asInt() == 1);
+
+        UUID renamed = UUID.randomUUID();
+        publish("user.profile-updated", envelope(renamed, "UserProfileUpdated", "USER", seller.toString(), mapper()
+                .put("userId", seller.toString()).put("email", email).put("displayName", "New Name").put("role", "SELLER")));
+        await(() -> count("select count(*) from recipients where user_id = UUID_TO_BIN(?) and display_name = 'New Name'",
+                seller.toString()) == 1);
+
+        publish("invoice.verified", envelope("InvoiceVerified", "INVOICE", UUID.randomUUID().toString(), mapper()
+                .put("sellerId", seller.toString()).put("invoiceNumber", "INV-77").put("amount", "1000.00")));
+        await(() -> mailTo(email).path("total").asInt() == 2);
+        assertThat(mailTo(email).path("items").toString()).contains("Hello New Name");
+        assertThat(count("select count(*) from notifications where event_id = UUID_TO_BIN(?)", renamed.toString()))
+                .isZero();
+    }
+
+    @Test
     void unknownRecipientIsRecordedAsSkippedWithoutMail() throws Exception {
         UUID stranger = UUID.randomUUID();
         UUID eventId = UUID.randomUUID();

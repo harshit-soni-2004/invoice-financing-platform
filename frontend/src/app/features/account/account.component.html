@@ -1,0 +1,212 @@
+<section class="settings-page">
+  <header class="settings-header">
+    <p class="eyebrow">Settings</p>
+    <h1>Your account</h1>
+    <p class="subtitle">Update your profile and password, and choose how the app looks.</p>
+  </header>
+
+  <section class="settings-section" aria-labelledby="profile-title">
+    <div class="section-title">
+      <h2 id="profile-title">Profile</h2>
+      <p>Your name appears on your invoices, offers and notifications.</p>
+    </div>
+
+    @if (profile(); as p) {
+      <div class="identity">
+        <span class="avatar" aria-hidden="true">{{ initials() }}</span>
+        <div class="identity-text">
+          <p class="identity-name">{{ p.displayName }}</p>
+          <span class="badge badge-primary">{{ roleLabels[p.role] }}</span>
+        </div>
+      </div>
+
+      <form class="name-form" [formGroup]="nameForm" (ngSubmit)="saveName()" novalidate>
+        <div class="field">
+          <label for="account-name">Display name</label>
+          <div class="inline-control">
+            <input
+              id="account-name"
+              class="input"
+              type="text"
+              formControlName="displayName"
+              autocomplete="name"
+              maxlength="100"
+              [attr.aria-invalid]="nameError() ? 'true' : null"
+              [attr.aria-describedby]="nameError() ? 'account-name-error' : null"
+            />
+            <button class="btn btn-primary" type="submit" [disabled]="savingName() || nameUnchanged()">
+              {{ savingName() ? 'Saving…' : 'Save name' }}
+            </button>
+          </div>
+          @if (nameError(); as message) {
+            <p class="error" id="account-name-error">{{ message }}</p>
+          }
+        </div>
+        <div aria-live="polite">
+          @if (nameOutcome(); as outcome) {
+            <p class="alert" [class.alert-success]="outcome.kind === 'success'" [class.alert-danger]="outcome.kind === 'error'">
+              {{ outcome.message }}
+            </p>
+          }
+        </div>
+      </form>
+
+      <dl class="profile-rows">
+        <div class="profile-row">
+          <dt>Email</dt>
+          <dd>
+            <span class="value">{{ p.email }}</span>
+            <span class="note">Used to sign in, so it cannot be changed here.</span>
+          </dd>
+        </div>
+        <div class="profile-row">
+          <dt>Account type</dt>
+          <dd>
+            <span class="value">{{ roleLabels[p.role] }} account</span>
+            <span class="note">Chosen when the account was created.</span>
+          </dd>
+        </div>
+        <div class="profile-row">
+          <dt>Status</dt>
+          <dd>
+            <span class="value">{{ statusLabel(p.status) }}</span>
+          </dd>
+        </div>
+        <div class="profile-row">
+          <dt>Member since</dt>
+          <dd>
+            <span class="value">{{ p.createdAt | date: 'longDate' }}</span>
+          </dd>
+        </div>
+      </dl>
+    } @else if (loadFailed()) {
+      <p class="alert alert-danger" role="alert">Your account details could not be loaded. Please try again later.</p>
+    } @else {
+      <p class="muted" role="status">Loading your account…</p>
+    }
+  </section>
+
+  @if (profile()) {
+    <section class="settings-section" aria-labelledby="security-title">
+      <div class="section-title">
+        <h2 id="security-title">Password</h2>
+        <p>Enter your current password to choose a new one.</p>
+      </div>
+
+      <form class="password-form" [formGroup]="passwordForm" (ngSubmit)="changePassword()" novalidate>
+        <div class="field">
+          <label for="account-current-password">Current password</label>
+          <input
+            id="account-current-password"
+            class="input"
+            [type]="showPasswords() ? 'text' : 'password'"
+            formControlName="currentPassword"
+            autocomplete="current-password"
+            spellcheck="false"
+            [attr.aria-invalid]="passwordError('currentPassword') ? 'true' : null"
+            [attr.aria-describedby]="passwordError('currentPassword') ? 'account-current-password-error' : null"
+          />
+          @if (passwordError('currentPassword'); as message) {
+            <p class="error" id="account-current-password-error">{{ message }}</p>
+          }
+        </div>
+
+        <div class="password-pair">
+          <div class="field">
+            <label for="account-new-password">New password</label>
+            <input
+              id="account-new-password"
+              class="input"
+              [type]="showPasswords() ? 'text' : 'password'"
+              formControlName="newPassword"
+              autocomplete="new-password"
+              spellcheck="false"
+              [attr.aria-invalid]="passwordError('newPassword') ? 'true' : null"
+              [attr.aria-describedby]="
+                passwordError('newPassword') ? 'account-new-password-hint account-new-password-error' : 'account-new-password-hint'
+              "
+            />
+            <p class="hint" id="account-new-password-hint">At least 12 characters, and not your email address.</p>
+            @if (passwordError('newPassword'); as message) {
+              <p class="error" id="account-new-password-error">{{ message }}</p>
+            }
+          </div>
+
+          <div class="field">
+            <label for="account-confirm-password">Confirm new password</label>
+            <input
+              id="account-confirm-password"
+              class="input"
+              [type]="showPasswords() ? 'text' : 'password'"
+              formControlName="confirmPassword"
+              autocomplete="new-password"
+              spellcheck="false"
+              [attr.aria-invalid]="passwordError('confirmPassword') ? 'true' : null"
+              [attr.aria-describedby]="passwordError('confirmPassword') ? 'account-confirm-password-error' : null"
+            />
+            @if (passwordError('confirmPassword'); as message) {
+              <p class="error" id="account-confirm-password-error">{{ message }}</p>
+            }
+          </div>
+        </div>
+
+        <div class="form-footer">
+          <label class="show-passwords">
+            <input type="checkbox" [checked]="showPasswords()" (change)="showPasswords.set(!showPasswords())" />
+            Show passwords
+          </label>
+          <button class="btn btn-primary" type="submit" [disabled]="changingPassword()">
+            {{ changingPassword() ? 'Changing…' : 'Change password' }}
+          </button>
+        </div>
+
+        <div aria-live="polite">
+          @if (passwordOutcome(); as outcome) {
+            <p class="alert" [class.alert-success]="outcome.kind === 'success'" [class.alert-danger]="outcome.kind === 'error'">
+              {{ outcome.message }}
+            </p>
+          }
+        </div>
+      </form>
+    </section>
+  }
+
+  <section class="settings-section" aria-labelledby="appearance-title">
+    <div class="section-title">
+      <h2 id="appearance-title">Appearance</h2>
+      <p>Choose a theme. It is saved in this browser only.</p>
+    </div>
+
+    <div class="theme-options" role="group" aria-labelledby="appearance-title">
+      @for (option of themeOptions; track option.value) {
+        <button
+          type="button"
+          class="theme-card"
+          [class.selected]="theme.preference() === option.value"
+          [attr.aria-pressed]="theme.preference() === option.value"
+          (click)="theme.preference.set(option.value)"
+        >
+          <span [class]="'preview preview-' + option.value" aria-hidden="true">
+            @if (option.value === 'system') {
+              <span class="half light"><span class="bar"></span><span class="line"></span><span class="line short"></span></span>
+              <span class="half dark"><span class="bar"></span><span class="line"></span><span class="line short"></span></span>
+            } @else {
+              <span class="bar"></span>
+              <span class="line"></span>
+              <span class="line short"></span>
+            }
+          </span>
+          <span class="theme-text">
+            <span class="theme-name">{{ option.name }}</span>
+            <span class="theme-desc">{{ option.description }}</span>
+          </span>
+          @if (theme.preference() === option.value) {
+            <span class="check" aria-hidden="true">
+              <svg viewBox="0 0 16 16" width="12" height="12"><path d="M3 8.5l3 3 7-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+            </span>
+          }
+        </button>
+      }
+    </div>
+  </section>
+</section>
