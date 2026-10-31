@@ -36,18 +36,21 @@ export class AppComponent {
   protected readonly year = new Date().getFullYear();
   protected readonly roleLabels = ROLE_LABELS;
 
-  /** Links follow the signed-in role for convenience only; the APIs enforce access. */
+  /**
+   * Links follow the signed-in role for convenience only; the APIs enforce access. Signed-out visitors get none: the
+   * brand already links to the landing page.
+   */
   protected readonly links = computed<NavLink[]>(() => {
-    const links: NavLink[] = [{ path: '/', label: 'Home', exact: true }];
     const user = this.auth.user();
-    if (user) {
-      links.push(
-        { path: homeFor(user.role), label: AREA_LABELS[user.role] },
-        { path: NOTIFICATIONS_PATH, label: 'Notifications' },
-        { path: '/account', label: 'Account' },
-      );
+    if (!user) {
+      return [];
     }
-    return links;
+    return [
+      { path: '/', label: 'Home', exact: true },
+      { path: homeFor(user.role), label: AREA_LABELS[user.role] },
+      { path: NOTIFICATIONS_PATH, label: 'Notifications' },
+      { path: '/account', label: 'Account' },
+    ];
   });
 
   protected readonly themeLabel = computed(() => {
@@ -58,6 +61,17 @@ export class AppComponent {
         return 'Theme: dark';
       default:
         return 'Theme: system';
+    }
+  });
+
+  protected readonly themeName = computed(() => {
+    switch (this.theme.preference()) {
+      case 'light':
+        return 'Light';
+      case 'dark':
+        return 'Dark';
+      default:
+        return 'System';
     }
   });
 

@@ -61,6 +61,45 @@ describe('AppComponent', () => {
     expect(el.querySelector('a[href="/account"]')).toBeNull();
   });
 
+  it('shows no Home link to visitors; the brand links to the landing page', () => {
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+    const el: HTMLElement = fixture.nativeElement;
+
+    expect(el.querySelector('nav ul')).toBeNull();
+    expect(el.querySelector('a.brand')?.getAttribute('href')).toBe('/');
+  });
+
+  it('shows Home in the navigation once signed in', () => {
+    user.set({ id: 'u', name: 'Asha Rao', role: 'SELLER' });
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+
+    const links = Array.from(fixture.nativeElement.querySelectorAll('nav ul a') as NodeListOf<HTMLElement>);
+    expect(links[0].textContent?.trim()).toBe('Home');
+    expect(links[0].getAttribute('href')).toBe('/');
+  });
+
+  it('names the current theme on the icon-only theme button and cycles it on click', () => {
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+    const button: HTMLButtonElement = fixture.nativeElement.querySelector('.theme-toggle');
+    const before = button.getAttribute('aria-label');
+    expect(before).toMatch(/^Theme: (system|light|dark)\. Change theme$/);
+    expect(button.querySelector('svg')).not.toBeNull();
+
+    button.click();
+    fixture.detectChanges();
+    expect(button.getAttribute('aria-label')).not.toBe(before);
+    expect(button.title).toContain('click to change');
+
+    // Three steps return to the stored preference, so other tests are unaffected.
+    button.click();
+    button.click();
+    fixture.detectChanges();
+    expect(button.getAttribute('aria-label')).toBe(before);
+  });
+
   it("shows the user's name, role, area link and sign-out when signed in", () => {
     user.set({ id: 'u', name: 'Vikram Shah', role: 'FINANCIER' });
     const fixture = TestBed.createComponent(AppComponent);
