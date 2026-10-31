@@ -13,6 +13,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { AbstractControl, FormControl, NonNullableFormBuilder, ReactiveFormsModule, ValidationErrors, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
+import { AuthHeroComponent } from './auth-hero.component';
 import { passwordViolation } from './password-policy';
 import {
   RegisteredAccount,
@@ -70,7 +71,7 @@ function matchingPassword(control: AbstractControl<string>): ValidationErrors | 
 
 @Component({
   selector: 'ifp-register',
-  imports: [ReactiveFormsModule, RouterLink],
+  imports: [AuthHeroComponent, ReactiveFormsModule, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './register.component.html',
   styleUrl: './register.component.scss',

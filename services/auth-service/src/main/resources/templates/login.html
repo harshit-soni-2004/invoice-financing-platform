@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Sign in · Invoice Financing</title>
+  <link rel="stylesheet" th:href="@{/assets/login.css}">
+  <script th:src="@{/assets/login.js}" defer></script>
+</head>
+<body>
+<main class="auth-page">
+  <div class="auth-shell">
+    <aside class="hero" aria-label="Invoice Financing at a glance">
+      <div class="glow glow-1" aria-hidden="true"></div>
+      <div class="glow glow-2" aria-hidden="true"></div>
+
+      <a class="brand-badge" th:href="${appUrl}">
+        <span class="brand-mark" aria-hidden="true">IF</span>
+        <span class="brand-name">Invoice Financing</span>
+        <span class="brand-tag">Working capital, faster</span>
+      </a>
+
+      <div class="stage" aria-hidden="true">
+        <div class="glass-card float-slow">
+          <div class="card-head">
+            <span class="card-label">Invoice INV-2026-0142</span>
+            <span class="pill pill-ok">Verified</span>
+          </div>
+          <div class="card-amount">₹4,80,000</div>
+          <div class="card-meta">Buyer · Northwind Retail Pvt Ltd · due in 60 days</div>
+          <div class="meter"><div class="meter-fill"></div></div>
+          <div class="meter-caption"><span>Advance 85%</span><span>₹4,08,000</span></div>
+        </div>
+        <div class="float-pill pill-1 float-reverse">
+          <span class="pill-icon">⚡</span>
+          <span><strong>3 offers</strong> received in 2 hours</span>
+        </div>
+        <div class="float-pill pill-2 float-delayed">
+          <span class="pill-icon">✓</span>
+          <span>Disbursed <strong>₹4,08,000</strong></span>
+        </div>
+      </div>
+
+      <div class="narrative">
+        <span class="narrative-badge">Invoice financing, end to end</span>
+        <h2>Turn unpaid invoices into working capital.</h2>
+        <ul class="points">
+          <li>Sellers list verified invoices and compare competing offers.</li>
+          <li>Financiers fund invoices and track repayments on schedule.</li>
+          <li>Every step is recorded in an append-only audit trail.</li>
+        </ul>
+      </div>
+    </aside>
+
+    <section class="form-col" aria-labelledby="login-heading">
+      <div class="form-container">
+        <a class="mobile-brand" th:href="${appUrl}">
+          <span class="brand-mark" aria-hidden="true">IF</span>
+          <span>Invoice Financing</span>
+        </a>
+
+        <header class="form-header">
+          <p class="eyebrow">Welcome back</p>
+          <h1 id="login-heading">Sign in to your account</h1>
+          <p class="lede">Manage invoices, offers and repayments in one place.</p>
+        </header>
+
+        <div th:if="${param.error}" class="alert alert-error" role="alert">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <span>The email or password is incorrect, or the account is not active yet. New financier accounts can sign in once an administrator approves them.</span>
+        </div>
+        <div th:if="${param.logout}" class="alert alert-success" role="status">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          <span>You have been signed out.</span>
+        </div>
+
+        <form class="auth-form" method="post" th:action="@{/login}">
+          <div class="field">
+            <label for="username">Email</label>
+            <div class="input-wrap">
+              <span class="input-icon" aria-hidden="true">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+              </span>
+              <input id="username" name="username" type="email" autocomplete="username" inputmode="email"
+                     spellcheck="false" placeholder="name@company.com" required autofocus>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="password">Password</label>
+            <div class="input-wrap">
+              <span class="input-icon" aria-hidden="true">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              </span>
+              <input id="password" name="password" type="password" autocomplete="current-password"
+                     placeholder="Your password" required class="has-toggle">
+              <button type="button" class="toggle" id="password-toggle" aria-controls="password"
+                      aria-label="Show password" aria-pressed="false" hidden>
+                <svg class="eye-open" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg class="eye-closed" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <button type="submit" class="submit">
+            <span>Sign in</span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+          </button>
+        </form>
+
+        <footer class="form-footer">
+          <p>New to Invoice Financing? <a th:href="${registerUrl}">Create an account</a></p>
+          <p class="subtle"><a th:href="${appUrl}">← Back to the home page</a></p>
+        </footer>
+      </div>
+    </section>
+  </div>
+</main>
+</body>
+</html>
