@@ -2,7 +2,7 @@
 # Build from the repository root: docker build -f services/invoice-service/Dockerfile .
 
 # Bytecode is platform-independent: compile natively, then assemble the runtime image for each target platform.
-FROM --platform=$BUILDPLATFORM eclipse-temurin:21-jdk-alpine AS build
+FROM --platform=$BUILDPLATFORM eclipse-temurin:24-jdk-alpine AS build
 WORKDIR /workspace
 ENV MAVEN_OPTS="-Dmaven.repo.local=/workspace/.m2"
 
@@ -26,7 +26,7 @@ RUN ./mvnw -B -q -pl services/invoice-service -am package -DskipTests \
     && cp services/invoice-service/target/invoice-service-*.jar app.jar \
     && java -Djarmode=tools -jar app.jar extract --layers --launcher --destination extracted
 
-FROM eclipse-temurin:21-jre-alpine
+FROM eclipse-temurin:24-jre-alpine
 # Pick up Alpine security fixes released after the base image was built.
 RUN apk upgrade --no-cache && addgroup -S -g 10001 app && adduser -S -u 10001 -G app -h /app app
 WORKDIR /app
