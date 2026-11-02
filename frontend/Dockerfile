@@ -2,7 +2,7 @@
 # Build from the frontend directory: docker build -t ifp/frontend frontend
 
 # The bundle is platform-independent: build natively, then assemble the nginx image for each target platform.
-FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS build
+FROM --platform=$BUILDPLATFORM node:25-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
