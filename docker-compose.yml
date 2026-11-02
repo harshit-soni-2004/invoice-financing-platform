@@ -57,7 +57,7 @@ services:
     restart: unless-stopped
 
   rabbitmq:
-    image: rabbitmq:4.1-management-alpine
+    image: rabbitmq:4.4-management-alpine
     container_name: ifp-rabbitmq
     hostname: ifp-rabbitmq
     environment:
